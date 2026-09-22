@@ -120,7 +120,7 @@ h1 {
 }
 
 .room {
-    color: #D4AF37;
+    
     font-weight: bold;
     margin-top: 15px;
 }
