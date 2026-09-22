@@ -74,10 +74,20 @@ def nouvelle_partie():
         "winner": None,
         "game_over": False,
         "draw": False,
+
         "black_time": START_TIME,
         "red_time": START_TIME,
+
         "last_update": time.monotonic(),
-        "moves": []
+
+        "moves": [],
+
+        # SCORE
+        "black_score": 0,
+        "red_score": 0,
+
+        # NUMERO DE PARTIE
+        "game_number": 1
     }
 
 
@@ -105,27 +115,47 @@ async def envoyer_etat(room):
     mettre_a_jour_temps(room)
 
     if not room["game_over"]:
+
         if room["black_time"] <= 0:
             room["black_time"] = 0
             room["winner"] = 2
             room["game_over"] = True
+
+            room["red_score"] += 1
 
         elif room["red_time"] <= 0:
             room["red_time"] = 0
             room["winner"] = 1
             room["game_over"] = True
 
+            room["black_score"] += 1
+
     message = json.dumps({
         "type": "state",
+
         "board": room["board"],
         "players": len(room["players"]),
+
         "turn": room["turn"],
         "winner": room["winner"],
         "game_over": room["game_over"],
         "draw": room["draw"],
+
         "black_time": temps_entier(room["black_time"]),
         "red_time": temps_entier(room["red_time"]),
-        "last_move": room["moves"][-1] if room["moves"] else None
+
+        "last_move": (
+            room["moves"][-1]
+            if room["moves"]
+            else None
+        ),
+
+        # SCORE
+        "black_score": room["black_score"],
+        "red_score": room["red_score"],
+
+        # PARTIE
+        "game_number": room["game_number"]
     })
 
     for ws in list(room["players"].values()):
@@ -136,7 +166,9 @@ async def envoyer_etat(room):
 
 
 async def timer_loop(room_code):
+
     while room_code in rooms:
+
         room = rooms.get(room_code)
 
         if room is None:
@@ -158,11 +190,13 @@ async def timer_loop(room_code):
 
 
 async def handler(websocket):
+
     room_code = None
     player = None
     timer_task = None
 
     try:
+
         async for raw in websocket:
 
             try:
@@ -172,17 +206,24 @@ async def handler(websocket):
 
             action = data.get("action")
 
+
+            # =========================
+            # CREER UNE PARTIE
+            # =========================
+
             if action == "create":
 
                 if room_code:
                     continue
 
                 room_code = code_partie()
+
                 room = nouvelle_partie()
 
                 rooms[room_code] = room
 
                 player = 1
+
                 room["players"][player] = websocket
 
                 await websocket.send(
@@ -199,6 +240,11 @@ async def handler(websocket):
                     timer_loop(room_code)
                 )
 
+
+            # =========================
+            # REJOINDRE
+            # =========================
+
             elif action == "join":
 
                 code = str(
@@ -206,27 +252,33 @@ async def handler(websocket):
                 ).strip().upper()
 
                 if code not in rooms:
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "Partie introuvable."
                         })
                     )
+
                     continue
 
                 room = rooms[code]
 
                 if len(room["players"]) >= 2:
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "Partie complète."
                         })
                     )
+
                     continue
 
                 room_code = code
+
                 player = 2
+
                 room["players"][player] = websocket
 
                 await websocket.send(
@@ -240,19 +292,27 @@ async def handler(websocket):
                 await envoyer_etat(room)
 
                 if timer_task is None:
+
                     timer_task = asyncio.create_task(
                         timer_loop(room_code)
                     )
 
+
+            # =========================
+            # COUP
+            # =========================
+
             elif action == "move":
 
                 if not room_code or not player:
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "Non connecté."
                         })
                     )
+
                     continue
 
                 room = rooms.get(room_code)
@@ -261,86 +321,140 @@ async def handler(websocket):
                     continue
 
                 if len(room["players"]) < 2:
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "En attente du deuxième joueur."
                         })
                     )
+
                     continue
 
                 if room["game_over"]:
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "La partie est terminée."
                         })
                     )
+
                     continue
 
                 mettre_a_jour_temps(room)
 
-                if room["turn"] == 1 and room["black_time"] <= 0:
+
+                # TEMPS NOIR
+
+                if (
+                    room["turn"] == 1
+                    and room["black_time"] <= 0
+                ):
+
                     room["black_time"] = 0
+
                     room["winner"] = 2
+
                     room["game_over"] = True
+
+                    room["red_score"] += 1
+
                     await envoyer_etat(room)
+
                     continue
 
-                if room["turn"] == 2 and room["red_time"] <= 0:
+
+                # TEMPS ROUGE
+
+                if (
+                    room["turn"] == 2
+                    and room["red_time"] <= 0
+                ):
+
                     room["red_time"] = 0
+
                     room["winner"] = 1
+
                     room["game_over"] = True
+
+                    room["black_score"] += 1
+
                     await envoyer_etat(room)
+
                     continue
+
+
+                # TOUR
 
                 if room["turn"] != player:
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "Ce n'est pas ton tour."
                         })
                     )
+
                     continue
 
+
                 try:
+
                     row = int(data.get("row"))
                     col = int(data.get("col"))
+
                 except Exception:
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "Coup invalide."
                         })
                     )
+
                     continue
+
 
                 if not (
                     0 <= row < BOARD_SIZE
                     and 0 <= col < BOARD_SIZE
                 ):
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "Coup invalide."
                         })
                     )
+
                     continue
+
 
                 key = f"{row},{col}"
 
+
                 if key in room["board"]:
+
                     await websocket.send(
                         json.dumps({
                             "type": "error",
                             "message": "Case déjà occupée."
                         })
                     )
+
                     continue
 
-                color = "black" if player == 1 else "red"
+
+                color = (
+                    "black"
+                    if player == 1
+                    else "red"
+                )
+
 
                 room["board"][key] = color
+
 
                 room["moves"].append({
                     "row": row,
@@ -349,32 +463,75 @@ async def handler(websocket):
                     "player": player
                 })
 
+
+                # VICTOIRE
+
                 if check_win(
                     room["board"],
                     row,
                     col,
                     color
                 ):
+
                     room["winner"] = player
+
                     room["game_over"] = True
 
-                elif len(room["board"]) >= BOARD_SIZE * BOARD_SIZE:
+
+                    if player == 1:
+                        room["black_score"] += 1
+                    else:
+                        room["red_score"] += 1
+
+
+                # MATCH NUL
+
+                elif len(room["board"]) >= (
+                    BOARD_SIZE * BOARD_SIZE
+                ):
+
                     room["draw"] = True
+
                     room["game_over"] = True
+
                     room["winner"] = None
 
+
                 else:
-                    room["turn"] = 2 if room["turn"] == 1 else 1
-                    room["last_update"] = time.monotonic()
+
+                    room["turn"] = (
+                        2
+                        if room["turn"] == 1
+                        else 1
+                    )
+
+                    room["last_update"] = (
+                        time.monotonic()
+                    )
+
 
                 await envoyer_etat(room)
 
+
+            # =========================
+            # DEMANDER ETAT
+            # =========================
+
             elif action == "state":
 
-                if room_code and room_code in rooms:
+                if (
+                    room_code
+                    and room_code in rooms
+                ):
+
                     await envoyer_etat(
                         rooms[room_code]
                     )
+
+
+            # =========================
+            # NOUVELLE PARTIE
+            # =========================
 
             elif action == "reset":
 
@@ -386,56 +543,90 @@ async def handler(websocket):
                 if room is None:
                     continue
 
+
                 room["board"] = {}
+
                 room["turn"] = 1
+
                 room["winner"] = None
+
                 room["game_over"] = False
+
                 room["draw"] = False
+
                 room["black_time"] = START_TIME
+
                 room["red_time"] = START_TIME
-                room["last_update"] = time.monotonic()
+
+                room["last_update"] = (
+                    time.monotonic()
+                )
+
                 room["moves"] = []
+
+                # SCORE CONSERVE
+
+                room["game_number"] += 1
+
 
                 await envoyer_etat(room)
 
-                if timer_task is None or timer_task.done():
+
+                if (
+                    timer_task is None
+                    or timer_task.done()
+                ):
+
                     timer_task = asyncio.create_task(
                         timer_loop(room_code)
                     )
 
+
     except Exception:
         pass
+
 
     finally:
 
         if timer_task is not None:
             timer_task.cancel()
 
+
         if room_code in rooms:
 
             room = rooms[room_code]
 
+
             if player in room["players"]:
+
                 del room["players"][player]
 
+
             if not room["players"]:
+
                 del rooms[room_code]
 
             else:
+
                 await envoyer_etat(room)
 
 
 async def main():
 
     port = int(
-        os.environ.get("PORT", "8765")
+        os.environ.get(
+            "PORT",
+            "8765"
+        )
     )
+
 
     async with websockets.serve(
         handler,
         "0.0.0.0",
         port
     ):
+
         print(
             f"Gomoku server running on port {port}"
         )
@@ -444,4 +635,5 @@ async def main():
 
 
 if __name__ == "__main__":
+
     asyncio.run(main())
