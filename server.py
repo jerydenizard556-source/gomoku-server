@@ -4,1162 +4,1635 @@ import random
 import string
 import time
 import uuid
+import os
 
 import websockets
 
-
-# =========================================================
-# CONFIGURATION
-# =========================================================
-
-HOST = "0.0.0.0"
-PORT = 10000
+HOST = “0.0.0.0”
+PORT = int(os.environ.get(“PORT”, 10000))
 
 BOARD_SIZE = 20
 START_TIME = 10 * 60
 
 rooms = {}
 
-
-# =========================================================
-# UTILITAIRES
-# =========================================================
-
 def create_room_code():
-    while True:
-        code = "".join(
-            random.choices(
-                string.ascii_uppercase + string.digits,
-                k=6
-            )
-        )
+while True:
+code = “”.join(
+random.choices(
+string.ascii_uppercase + string.digits,
+k=6
+)
+)
 
-        if code not in rooms:
-            return code
+    if code not in rooms:
 
+        return code
 
 def create_session_token():
-    return uuid.uuid4().hex
+return str(uuid.uuid4())
+
+def create_room():
+room_code = create_room_code()
+
+rooms[room_code] = {
+
+    "board": [
+
+        [0 for _ in range(BOARD_SIZE)]
+
+        for _ in range(BOARD_SIZE)
+
+    ],
 
 
-def make_key(row, col):
-    return f"{row},{col}"
+
+    "players": {},
 
 
-def valid_position(row, col):
-    return (
-        isinstance(row, int)
-        and isinstance(col, int)
-        and 0 <= row < BOARD_SIZE
-        and 0 <= col < BOARD_SIZE
-    )
+
+    "turn": 1,
 
 
-# =========================================================
-# EXACTEMENT 5
-# =========================================================
 
-def check_win(board, row, col, color):
-    directions = [
-        (1, 0),
-        (0, 1),
-        (1, 1),
-        (1, -1)
-    ]
+    "black_time": START_TIME,
 
-    for dr, dc in directions:
-
-        start_row = row
-        start_col = col
-
-        end_row = row
-        end_col = col
-
-        # -------------------------------------------------
-        # Chercher le début de la ligne
-        # -------------------------------------------------
-
-        while True:
-
-            next_row = start_row - dr
-            next_col = start_col - dc
-
-            if not valid_position(
-                next_row,
-                next_col
-            ):
-                break
-
-            if board.get(
-                make_key(
-                    next_row,
-                    next_col
-                )
-            ) != color:
-                break
-
-            start_row = next_row
-            start_col = next_col
-
-        # -------------------------------------------------
-        # Chercher la fin de la ligne
-        # -------------------------------------------------
-
-        while True:
-
-            next_row = end_row + dr
-            next_col = end_col + dc
-
-            if not valid_position(
-                next_row,
-                next_col
-            ):
-                break
-
-            if board.get(
-                make_key(
-                    next_row,
-                    next_col
-                )
-            ) != color:
-                break
-
-            end_row = next_row
-            end_col = next_col
-
-        # -------------------------------------------------
-        # Longueur exacte
-        # -------------------------------------------------
-
-        run_length = (
-            max(
-                abs(end_row - start_row),
-                abs(end_col - start_col)
-            ) + 1
-        )
-
-        # IMPORTANT :
-        # 5 exactement = victoire
-        # 6 ou plus = PAS victoire
-
-        if run_length != 5:
-            continue
-
-        # Vérifier qu'il n'y a pas le même pion
-        # juste avant ou juste après.
-
-        before_row = start_row - dr
-        before_col = start_col - dc
-
-        after_row = end_row + dr
-        after_col = end_col + dc
-
-        before_same = False
-        after_same = False
-
-        if valid_position(
-            before_row,
-            before_col
-        ):
-            before_same = (
-                board.get(
-                    make_key(
-                        before_row,
-                        before_col
-                    )
-                ) == color
-            )
-
-        if valid_position(
-            after_row,
-            after_col
-        ):
-            after_same = (
-                board.get(
-                    make_key(
-                        after_row,
-                        after_col
-                    )
-                ) == color
-            )
-
-        if not before_same and not after_same:
-            return True
-
-    return False
+    "red_time": START_TIME,
 
 
-# =========================================================
-# CREER ET REINITIALISER UNE PARTIE
-# =========================================================
 
-def new_game_state(room):
-    room["board"] = {}
-
-    room["turn"] = 1
-
-    room["winner"] = None
-    room["game_over"] = False
-    room["draw"] = False
-
-    room["black_time"] = float(START_TIME)
-    room["red_time"] = float(START_TIME)
-
-    room["last_update"] = time.monotonic()
-
-    room["game_number"] += 1
+    "last_timer_update": time.monotonic(),
 
 
-# =========================================================
-# TIMER SERVEUR
-# =========================================================
 
-def update_timer(room):
-    if room["game_over"]:
-        room["last_update"] = time.monotonic()
-        return
+    "game_over": False,
 
-    now = time.monotonic()
+    "winner": 0,
 
-    elapsed = now - room["last_update"]
-
-    if elapsed <= 0:
-        return
-
-    room["last_update"] = now
-
-    if room["turn"] == 1:
-        room["black_time"] = max(
-            0,
-            room["black_time"] - elapsed
-        )
-
-        if room["black_time"] <= 0:
-            room["black_time"] = 0
-            room["winner"] = 2
-            room["game_over"] = True
-
-            room["red_score"] += 1
-
-    elif room["turn"] == 2:
-        room["red_time"] = max(
-            0,
-            room["red_time"] - elapsed
-        )
-
-        if room["red_time"] <= 0:
-            room["red_time"] = 0
-            room["winner"] = 1
-            room["game_over"] = True
-
-            room["black_score"] += 1
+    "draw": False,
 
 
-# =========================================================
-# ETAT DE LA PARTIE
-# =========================================================
+
+    "black_score": 0,
+
+    "red_score": 0,
+
+
+
+    "game_number": 1
+
+}
+
+
+
+return room_code
+
+def check_win(board, row, col, player):
+directions = [
+(1, 0),
+(0, 1),
+(1, 1),
+(1, -1)
+]
+
+for dr, dc in directions:
+
+
+
+    count = 1
+
+
+
+    r = row + dr
+
+    c = col + dc
+
+
+
+    while (
+
+        0 <= r < BOARD_SIZE
+
+        and 0 <= c < BOARD_SIZE
+
+        and board[r][c] == player
+
+    ):
+
+        count += 1
+
+        r += dr
+
+        c += dc
+
+
+
+    end_r = r
+
+    end_c = c
+
+
+
+    r = row - dr
+
+    c = col - dc
+
+
+
+    while (
+
+        0 <= r < BOARD_SIZE
+
+        and 0 <= c < BOARD_SIZE
+
+        and board[r][c] == player
+
+    ):
+
+        count += 1
+
+        r -= dr
+
+        c -= dc
+
+
+
+    start_r = r
+
+    start_c = c
+
+
+
+    # Exactement 5 pions.
+
+    # 6 ou plus ne donne PAS la victoire.
+
+
+
+    if count == 5:
+
+        return True
+
+
+
+return False
+
+def board_is_full(board):
+for row in board:
+for cell in row:
+if cell == 0:
+return False
+
+return True
 
 def get_state(room):
-    update_timer(room)
 
-    return {
-        "type": "state",
+update_timers(room)
 
-        "board": room["board"],
 
-        "turn": room["turn"],
 
-        "winner": room["winner"],
+return {
 
-        "game_over": room["game_over"],
+    "type": "state",
 
-        "draw": room["draw"],
 
-        "black_time": room["black_time"],
 
-        "red_time": room["red_time"],
+    "board": room["board"],
 
-        "black_score": room["black_score"],
 
-        "red_score": room["red_score"],
 
-        "game_number": room["game_number"]
+    "turn": room["turn"],
+
+
+
+    "black_time": max(
+
+        0,
+
+        room["black_time"]
+
+    ),
+
+
+
+    "red_time": max(
+
+        0,
+
+        room["red_time"]
+
+    ),
+
+
+
+    "game_over": room["game_over"],
+
+
+
+    "winner": room["winner"],
+
+
+
+    "draw": room["draw"],
+
+
+
+    "black_score": room["black_score"],
+
+
+
+    "red_score": room["red_score"],
+
+
+
+    "game_number": room["game_number"],
+
+
+
+    "players": {
+
+        str(player): {
+
+            "connected": data.get(
+
+                "connected",
+
+                False
+
+            )
+
+        }
+
+        for player, data in room["players"].items()
+
     }
 
-
-# =========================================================
-# ENVOYER UN MESSAGE A UN JOUEUR
-# =========================================================
+}
 
 async def send_json(websocket, data):
-    try:
-        await websocket.send(
-            json.dumps(data)
-        )
-    except Exception:
-        pass
 
+try:
 
-# =========================================================
-# ENVOYER L'ETAT A TOUT LE MONDE
-# =========================================================
+    await websocket.send(
 
-async def broadcast_state(room):
-    state = get_state(room)
+        json.dumps(data)
 
-    players = list(
-        room["players"].items()
     )
 
-    for player_number, player_data in players:
 
-        websocket = player_data.get(
-            "websocket"
-        )
 
-        if websocket is None:
-            continue
+except Exception:
+
+    pass
+
+async def broadcast_state(room):
+
+state = get_state(room)
+
+
+
+for player_data in list(
+
+    room["players"].values()
+
+):
+
+
+
+    websocket = player_data.get(
+
+        "websocket"
+
+    )
+
+
+
+    connected = player_data.get(
+
+        "connected",
+
+        False
+
+    )
+
+
+
+    if websocket is not None and connected:
+
+
 
         await send_json(
+
             websocket,
+
             state
+
         )
 
+def update_timers(room):
 
-# =========================================================
-# TROUVER UN JOUEUR PAR WEBSOCKET
-# =========================================================
+if room["game_over"]:
 
-def find_player_by_socket(room, websocket):
+    room["last_timer_update"] = time.monotonic()
 
-    for player_number, player_data in room["players"].items():
-
-        if player_data.get("websocket") is websocket:
-            return player_number
-
-    return None
+    return
 
 
-# =========================================================
-# CREER UNE PARTIE
-# =========================================================
+
+now = time.monotonic()
+
+
+
+elapsed = (
+
+    now - room["last_timer_update"]
+
+)
+
+
+
+room["last_timer_update"] = now
+
+
+
+if elapsed <= 0:
+
+    return
+
+
+
+if room["turn"] == 1:
+
+
+
+    room["black_time"] -= elapsed
+
+
+
+    if room["black_time"] <= 0:
+
+
+
+        room["black_time"] = 0
+
+
+
+        room["game_over"] = True
+
+        room["winner"] = 2
+
+
+
+        room["red_score"] += 1
+
+
+
+elif room["turn"] == 2:
+
+
+
+    room["red_time"] -= elapsed
+
+
+
+    if room["red_time"] <= 0:
+
+
+
+        room["red_time"] = 0
+
+
+
+        room["game_over"] = True
+
+        room["winner"] = 1
+
+
+
+        room["black_score"] += 1
+
+def find_player_by_socket(websocket):
+
+for room_code, room in rooms.items():
+
+
+
+    for player, data in room["players"].items():
+
+
+
+        if data.get(
+
+            "websocket"
+
+        ) == websocket:
+
+
+
+            return room_code, player
+
+
+
+return None, None
 
 async def handle_create(websocket):
 
-    room_code = create_room_code()
-
-    session_token = create_session_token()
-
-    rooms[room_code] = {
-        "board": {},
-
-        "turn": 1,
-
-        "winner": None,
-        "game_over": False,
-        "draw": False,
-
-        "black_time": float(START_TIME),
-        "red_time": float(START_TIME),
-
-        "black_score": 0,
-        "red_score": 0,
-
-        "game_number": 1,
-
-        "last_update": time.monotonic(),
-
-        "players": {
-            1: {
-                "websocket": websocket,
-                "session_token": session_token,
-                "connected": True
-            }
-        }
-    }
-
-    await send_json(
-        websocket,
-        {
-            "type": "created",
-
-            "room": room_code,
-
-            "player": 1,
-
-            "session_token": session_token,
-
-            "black_score": 0,
-
-            "red_score": 0,
-
-            "game_number": 1
-        }
-    )
-
-    await broadcast_state(
-        rooms[room_code]
-    )
+room_code = create_room()
 
 
-# =========================================================
-# REJOINDRE UNE PARTIE
-# =========================================================
 
-async def handle_join(websocket, room_code):
+room = rooms[room_code]
 
-    if room_code not in rooms:
 
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Partie introuvable."
-            }
-        )
 
-        return
+session_token = create_session_token()
 
-    room = rooms[room_code]
 
-    # Chercher joueur 2
 
-    if 2 in room["players"]:
+room["players"][1] = {
 
-        player_two =
-            room["players"][2]
 
-        if player_two.get(
-            "connected",
-            False
-        ):
 
-            await send_json(
-                websocket,
-                {
-                    "type": "error",
-                    "message": "Cette partie est déjà complète."
-                }
-            )
+    "websocket": websocket,
 
-            return
 
-        # Si joueur 2 existait mais était déconnecté,
-        # il reste réservé à son token.
-        # Un nouveau téléphone ne doit pas prendre sa place.
 
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Cette place est réservée à l'ancien joueur."
-            }
-        )
+    "session_token": session_token,
 
-        return
 
-    session_token = create_session_token()
 
-    room["players"][2] = {
-        "websocket": websocket,
+    "connected": True
+
+}
+
+
+
+await send_json(
+
+    websocket,
+
+    {
+
+        "type": "created",
+
+
+
+        "room": room_code,
+
+
+
+        "player": 1,
+
+
+
         "session_token": session_token,
-        "connected": True
+
+
+
+        "black_score": room["black_score"],
+
+
+
+        "red_score": room["red_score"],
+
+
+
+        "game_number": room["game_number"]
+
     }
 
-    await send_json(
-        websocket,
-        {
-            "type": "joined",
-
-            "room": room_code,
-
-            "player": 2,
-
-            "session_token": session_token,
-
-            "black_score": room["black_score"],
-
-            "red_score": room["red_score"],
-
-            "game_number": room["game_number"]
-        }
-    )
-
-    await broadcast_state(room)
+)
 
 
-# =========================================================
-# RECONNEXION
-# =========================================================
 
-async def handle_reconnect(
-    websocket,
-    room_code,
-    session_token,
-    mode
+await broadcast_state(room)
+
+async def handle_join(
+websocket,
+room_code
 ):
 
-    if room_code not in rooms:
+if room_code not in rooms:
 
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "La partie n'existe plus."
-            }
-        )
 
-        return False
-
-    room = rooms[room_code]
-
-    found_player = None
-
-    for player_number, player_data in room["players"].items():
-
-        if (
-            player_data.get(
-                "session_token"
-            ) == session_token
-        ):
-
-            found_player = player_number
-            break
-
-    if found_player is None:
-
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Session de joueur invalide."
-            }
-        )
-
-        return False
-
-    # Remplacer l'ancien websocket
-    room["players"][found_player]["websocket"] = websocket
-
-    room["players"][found_player]["connected"] = True
 
     await send_json(
+
         websocket,
+
         {
-            "type": "reconnected",
 
-            "room": room_code,
+            "type": "error",
 
-            "player": found_player,
 
-            "session_token": session_token,
 
-            "black_score": room["black_score"],
+            "message":
 
-            "red_score": room["red_score"],
+                "Partie introuvable."
 
-            "game_number": room["game_number"]
         }
+
     )
 
-    await broadcast_state(room)
-
-    return True
 
 
-# =========================================================
-# JOUER UN COUP
-# =========================================================
+    return
 
-async def handle_move(
-    room,
-    websocket,
-    row,
-    col
-):
 
-    update_timer(room)
 
-    if room["game_over"]:
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "La partie est terminée."
-            }
-        )
+room = rooms[room_code]
 
-        return
 
-    player = find_player_by_socket(
-        room,
-        websocket
-    )
 
-    if player is None:
+# Si Joueur 2 existe déjà,
 
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Joueur non reconnu."
-            }
-        )
+# sa place lui est réservée pour reconnexion.
 
-        return
 
-    if player != room["turn"]:
 
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Ce n'est pas votre tour."
-            }
-        )
+if 2 in room["players"]:
 
-        return
 
-    if not valid_position(row, col):
 
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Position invalide."
-            }
-        )
+    player_two = room["players"][2]
 
-        return
 
-    key = make_key(row, col)
 
-    if key in room["board"]:
+    if player_two.get(
 
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Cette case est déjà occupée."
-            }
-        )
+        "connected",
 
-        return
+        False
 
-    color = (
-        "black"
-        if player == 1
-        else "red"
-    )
-
-    room["board"][key] = color
-
-    # -----------------------------------------------------
-    # VERIFICATION EXACTEMENT 5
-    # -----------------------------------------------------
-
-    if check_win(
-        room["board"],
-        row,
-        col,
-        color
     ):
 
-        room["winner"] = player
 
-        room["game_over"] = True
 
-        if player == 1:
-            room["black_score"] += 1
-        else:
-            room["red_score"] += 1
+        await send_json(
 
-        await broadcast_state(room)
+            websocket,
 
-        return
+            {
 
-    # -----------------------------------------------------
-    # MATCH NUL
-    # -----------------------------------------------------
+                "type": "error",
 
-    if len(room["board"]) >= BOARD_SIZE * BOARD_SIZE:
 
-        room["draw"] = True
 
-        room["game_over"] = True
+                "message":
 
-        await broadcast_state(room)
+                    "Cette partie est déjà complète."
+
+            }
+
+        )
+
+
 
         return
 
-    # -----------------------------------------------------
-    # CHANGER DE TOUR
-    # -----------------------------------------------------
 
-    room["turn"] = (
-        2
-        if room["turn"] == 1
-        else 1
+
+    await send_json(
+
+        websocket,
+
+        {
+
+            "type": "error",
+
+
+
+            "message":
+
+                "Cette place est réservée à l'ancien joueur."
+
+        }
+
     )
 
-    room["last_update"] = time.monotonic()
-
-    await broadcast_state(room)
 
 
-# =========================================================
-# NOUVELLE PARTIE
-# =========================================================
+    return
 
-async def handle_reset(
-    room,
-    websocket
+
+
+session_token = create_session_token()
+
+
+
+room["players"][2] = {
+
+
+
+    "websocket": websocket,
+
+
+
+    "session_token": session_token,
+
+
+
+    "connected": True
+
+}
+
+
+
+await send_json(
+
+    websocket,
+
+    {
+
+        "type": "joined",
+
+
+
+        "room": room_code,
+
+
+
+        "player": 2,
+
+
+
+        "session_token": session_token,
+
+
+
+        "black_score": room["black_score"],
+
+
+
+        "red_score": room["red_score"],
+
+
+
+        "game_number": room["game_number"]
+
+    }
+
+)
+
+
+
+await broadcast_state(room)
+
+async def handle_reconnect(
+websocket,
+room_code,
+player,
+session_token
 ):
 
-    update_timer(room)
+if room_code not in rooms:
 
-    player = find_player_by_socket(
-        room,
-        websocket
+
+
+    await send_json(
+
+        websocket,
+
+        {
+
+            "type": "error",
+
+
+
+            "message":
+
+                "Partie introuvable."
+
+        }
+
     )
 
-    if player is None:
-
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Joueur non reconnu."
-            }
-        )
-
-        return
-
-    # Une nouvelle partie ne doit pas être lancée
-    # avant que les deux joueurs soient présents.
-
-    connected_players = 0
-
-    for player_data in room["players"].values():
-
-        if player_data.get(
-            "connected",
-            False
-        ):
-            connected_players += 1
-
-    if connected_players < 2:
-
-        await send_json(
-            websocket,
-            {
-                "type": "error",
-                "message": "Le deuxième joueur doit être connecté."
-            }
-        )
-
-        return
-
-    new_game_state(room)
-
-    await broadcast_state(room)
 
 
-# =========================================================
-# DECONNEXION
-# =========================================================
+    return
 
-def mark_disconnected(room, websocket):
 
-    player = find_player_by_socket(
-        room,
-        websocket
+
+room = rooms[room_code]
+
+
+
+try:
+
+    player = int(player)
+
+
+
+except Exception:
+
+
+
+    await send_json(
+
+        websocket,
+
+        {
+
+            "type": "error",
+
+
+
+            "message":
+
+                "Joueur invalide."
+
+        }
+
     )
 
-    if player is None:
-        return
-
-    room["players"][player]["websocket"] = None
-
-    room["players"][player]["connected"] = False
 
 
-# =========================================================
-# BOUCLE TIMER
-# =========================================================
-
-async def timer_loop():
-
-    while True:
-
-        await asyncio.sleep(0.5)
-
-        empty_rooms = []
-
-        for room_code, room in list(
-            rooms.items()
-        ):
-
-            update_timer(room)
-
-            # Envoyer l'état régulièrement
-            # afin que les deux appareils restent synchronisés.
-
-            if room["players"]:
-
-                await broadcast_state(room)
-
-            # -------------------------------------------------
-            # Supprimer une room uniquement si aucun joueur
-            # n'est connecté ET qu'aucune session active
-            # n'est encore présente.
-            #
-            # Pour permettre la reconnexion, on conserve
-            # la room pendant un certain temps.
-            # -------------------------------------------------
-
-            connected = any(
-                player_data.get(
-                    "connected",
-                    False
-                )
-                for player_data
-                in room["players"].values()
-            )
-
-            if not connected:
-
-                empty_rooms.append(
-                    room_code
-                )
-
-        # On ne supprime pas immédiatement les rooms ici.
-        # Les sessions sont conservées afin de permettre
-        # une reconnexion.
+    return
 
 
-# =========================================================
-# GESTION CLIENT
-# =========================================================
 
-async def client_handler(websocket):
+if player not in room["players"]:
 
-    current_room = None
+
+
+    await send_json(
+
+        websocket,
+
+        {
+
+            "type": "error",
+
+
+
+            "message":
+
+                "Session introuvable."
+
+        }
+
+    )
+
+
+
+    return
+
+
+
+player_data = room["players"][player]
+
+
+
+if player_data.get(
+
+    "session_token"
+
+) != session_token:
+
+
+
+    await send_json(
+
+        websocket,
+
+        {
+
+            "type": "error",
+
+
+
+            "message":
+
+                "Session invalide."
+
+        }
+
+    )
+
+
+
+    return
+
+
+
+old_websocket = player_data.get(
+
+    "websocket"
+
+)
+
+
+
+if (
+
+    old_websocket is not None
+
+    and old_websocket != websocket
+
+):
+
+
 
     try:
 
-        async for message in websocket:
+        await old_websocket.close()
 
-            try:
 
-                data = json.loads(message)
 
-            except json.JSONDecodeError:
-
-                await send_json(
-                    websocket,
-                    {
-                        "type": "error",
-                        "message": "Message invalide."
-                    }
-                )
-
-                continue
-
-            action = data.get(
-                "action"
-            )
-
-            # -------------------------------------------------
-            # CREATE
-            # -------------------------------------------------
-
-            if action == "create":
-
-                if current_room is not None:
-                    continue
-
-                await handle_create(
-                    websocket
-                )
-
-                # Trouver la room créée
-
-                for room_code, room in rooms.items():
-
-                    if (
-                        room["players"].get(1, {}).get(
-                            "websocket"
-                        ) is websocket
-                    ):
-
-                        current_room = room_code
-                        break
-
-                continue
-
-            # -------------------------------------------------
-            # JOIN
-            # -------------------------------------------------
-
-            if action == "join":
-
-                if current_room is not None:
-                    continue
-
-                room_code = str(
-                    data.get(
-                        "room",
-                        ""
-                    )
-                ).strip().upper()
-
-                if len(room_code) != 6:
-
-                    await send_json(
-                        websocket,
-                        {
-                            "type": "error",
-                            "message": "Code de partie invalide."
-                        }
-                    )
-
-                    continue
-
-                await handle_join(
-                    websocket,
-                    room_code
-                )
-
-                if room_code in rooms:
-
-                    player = find_player_by_socket(
-                        rooms[room_code],
-                        websocket
-                    )
-
-                    if player is not None:
-                        current_room = room_code
-
-                continue
-
-            # -------------------------------------------------
-            # RECONNECT
-            # -------------------------------------------------
-
-            if action == "reconnect":
-
-                room_code = str(
-                    data.get(
-                        "room",
-                        ""
-                    )
-                ).strip().upper()
-
-                session_token = str(
-                    data.get(
-                        "session_token",
-                        ""
-                    )
-                ).strip()
-
-                mode = str(
-                    data.get(
-                        "mode",
-                        ""
-                    )
-                ).strip()
-
-                if not room_code or not session_token:
-
-                    await send_json(
-                        websocket,
-                        {
-                            "type": "error",
-                            "message": "Informations de reconnexion manquantes."
-                        }
-                    )
-
-                    continue
-
-                success = await handle_reconnect(
-                    websocket,
-                    room_code,
-                    session_token,
-                    mode
-                )
-
-                if success:
-
-                    current_room = room_code
-
-                continue
-
-            # -------------------------------------------------
-            # MOVE
-            # -------------------------------------------------
-
-            if action == "move":
-
-                if current_room is None:
-
-                    await send_json(
-                        websocket,
-                        {
-                            "type": "error",
-                            "message": "Vous n'êtes dans aucune partie."
-                        }
-                    )
-
-                    continue
-
-                if current_room not in rooms:
-
-                    await send_json(
-                        websocket,
-                        {
-                            "type": "error",
-                            "message": "La partie n'existe plus."
-                        }
-                    )
-
-                    continue
-
-                row = data.get("row")
-                col = data.get("col")
-
-                if (
-                    not isinstance(row, int)
-                    or not isinstance(col, int)
-                ):
-
-                    await send_json(
-                        websocket,
-                        {
-                            "type": "error",
-                            "message": "Coordonnées invalides."
-                        }
-                    )
-
-                    continue
-
-                await handle_move(
-                    rooms[current_room],
-                    websocket,
-                    row,
-                    col
-                )
-
-                continue
-
-            # -------------------------------------------------
-            # RESET
-            # -------------------------------------------------
-
-            if action == "reset":
-
-                if current_room is None:
-                    continue
-
-                if current_room not in rooms:
-                    continue
-
-                await handle_reset(
-                    rooms[current_room],
-                    websocket
-                )
-
-                continue
-
-            # -------------------------------------------------
-            # ACTION INCONNUE
-            # -------------------------------------------------
-
-            await send_json(
-                websocket,
-                {
-                    "type": "error",
-                    "message": "Action inconnue."
-                }
-            )
-
-    except websockets.exceptions.ConnectionClosed:
+    except Exception:
 
         pass
 
-    except Exception as error:
 
-        print(
-            "Erreur client :",
-            error
+
+player_data["websocket"] = websocket
+
+
+
+player_data["connected"] = True
+
+
+
+await send_json(
+
+    websocket,
+
+    {
+
+        "type": "reconnected",
+
+
+
+        "room": room_code,
+
+
+
+        "player": player,
+
+
+
+        "session_token": session_token,
+
+
+
+        "black_score":
+
+            room["black_score"],
+
+
+
+        "red_score":
+
+            room["red_score"],
+
+
+
+        "game_number":
+
+            room["game_number"]
+
+    }
+
+)
+
+
+
+await broadcast_state(room)
+
+async def handle_move(
+websocket,
+data
+):
+
+room_code = data.get(
+
+    "room"
+
+)
+
+
+
+if room_code not in rooms:
+
+    return
+
+
+
+room = rooms[room_code]
+
+
+
+room_code_found, player = find_player_by_socket(
+
+    websocket
+
+)
+
+
+
+if room_code_found != room_code:
+
+    return
+
+
+
+if player is None:
+
+    return
+
+
+
+update_timers(room)
+
+
+
+if room["game_over"]:
+
+
+
+    await send_json(
+
+        websocket,
+
+        {
+
+            "type": "error",
+
+
+
+            "message":
+
+                "La partie est terminée."
+
+        }
+
+    )
+
+
+
+    return
+
+
+
+if player != room["turn"]:
+
+
+
+    await send_json(
+
+        websocket,
+
+        {
+
+            "type": "error",
+
+
+
+            "message":
+
+                "Ce n'est pas votre tour."
+
+        }
+
+    )
+
+
+
+    return
+
+
+
+try:
+
+
+
+    row = int(
+
+        data.get("row")
+
+    )
+
+
+
+    col = int(
+
+        data.get("col")
+
+    )
+
+
+
+except Exception:
+
+
+
+    return
+
+
+
+if not (
+
+    0 <= row < BOARD_SIZE
+
+    and 0 <= col < BOARD_SIZE
+
+):
+
+
+
+    return
+
+
+
+if room["board"][row][col] != 0:
+
+
+
+    await send_json(
+
+        websocket,
+
+        {
+
+            "type": "error",
+
+
+
+            "message":
+
+                "Cette case est déjà occupée."
+
+        }
+
+    )
+
+
+
+    return
+
+
+
+room["board"][row][col] = player
+
+
+
+if check_win(
+
+    room["board"],
+
+    row,
+
+    col,
+
+    player
+
+):
+
+
+
+    room["game_over"] = True
+
+
+
+    room["winner"] = player
+
+
+
+    if player == 1:
+
+
+
+        room["black_score"] += 1
+
+
+
+    else:
+
+
+
+        room["red_score"] += 1
+
+
+
+elif board_is_full(
+
+    room["board"]
+
+):
+
+
+
+    room["game_over"] = True
+
+
+
+    room["draw"] = True
+
+
+
+    room["winner"] = 0
+
+
+
+else:
+
+
+
+    if player == 1:
+
+
+
+        room["turn"] = 2
+
+
+
+    else:
+
+
+
+        room["turn"] = 1
+
+
+
+room["last_timer_update"] = time.monotonic()
+
+
+
+await broadcast_state(room)
+
+async def handle_reset(
+websocket,
+data
+):
+
+room_code = data.get(
+
+    "room"
+
+)
+
+
+
+if room_code not in rooms:
+
+    return
+
+
+
+room = rooms[room_code]
+
+
+
+room_code_found, player = find_player_by_socket(
+
+    websocket
+
+)
+
+
+
+if room_code_found != room_code:
+
+    return
+
+
+
+if player is None:
+
+    return
+
+
+
+room["board"] = [
+
+    [0 for _ in range(BOARD_SIZE)]
+
+    for _ in range(BOARD_SIZE)
+
+]
+
+
+
+room["turn"] = 1
+
+
+
+room["black_time"] = START_TIME
+
+
+
+room["red_time"] = START_TIME
+
+
+
+room["last_timer_update"] = time.monotonic()
+
+
+
+room["game_over"] = False
+
+
+
+room["winner"] = 0
+
+
+
+room["draw"] = False
+
+
+
+# Les scores restent conservés.
+
+room["game_number"] += 1
+
+
+
+await broadcast_state(room)
+
+async def mark_disconnected(
+websocket
+):
+
+room_code, player = find_player_by_socket(
+
+    websocket
+
+)
+
+
+
+if room_code is None:
+
+    return
+
+
+
+room = rooms[room_code]
+
+
+
+if player not in room["players"]:
+
+    return
+
+
+
+player_data = room["players"][player]
+
+
+
+if player_data.get(
+
+    "websocket"
+
+) == websocket:
+
+
+
+    player_data["connected"] = False
+
+async def timer_loop():
+
+while True:
+
+
+
+    await asyncio.sleep(0.5)
+
+
+
+    for room in list(
+
+        rooms.values()
+
+    ):
+
+
+
+        if room["game_over"]:
+
+            continue
+
+
+
+        before_black = room["black_time"]
+
+
+
+        before_red = room["red_time"]
+
+
+
+        before_game_over = room["game_over"]
+
+
+
+        update_timers(room)
+
+
+
+        changed = (
+
+            int(before_black)
+
+            != int(room["black_time"])
+
+            or
+
+            int(before_red)
+
+            != int(room["red_time"])
+
+            or
+
+            before_game_over
+
+            != room["game_over"]
+
         )
 
-    finally:
 
-        if current_room is not None:
 
-            if current_room in rooms:
+        if changed:
 
-                room = rooms[current_room]
 
-                mark_disconnected(
-                    room,
-                    websocket
+
+            await broadcast_state(room)
+
+async def client_handler(
+websocket
+):
+
+try:
+
+
+
+    async for message in websocket:
+
+
+
+        try:
+
+
+
+            data = json.loads(
+
+                message
+
+            )
+
+
+
+        except Exception:
+
+
+
+            await send_json(
+
+                websocket,
+
+                {
+
+                    "type": "error",
+
+
+
+                    "message":
+
+                        "Message invalide."
+
+                }
+
+            )
+
+
+
+            continue
+
+
+
+        message_type = data.get(
+
+            "type"
+
+        )
+
+
+
+        if message_type == "create":
+
+
+
+            await handle_create(
+
+                websocket
+
+            )
+
+
+
+        elif message_type == "join":
+
+
+
+            room_code = str(
+
+                data.get(
+
+                    "room",
+
+                    ""
+
                 )
 
-                # Ne pas supprimer la room.
-                # Cela permet au joueur de revenir avec
-                # son session_token.
+            ).upper()
 
-                print(
-                    "Joueur déconnecté de la room",
-                    current_room
+
+
+            await handle_join(
+
+                websocket,
+
+                room_code
+
+            )
+
+
+
+        elif message_type == "reconnect":
+
+
+
+            room_code = str(
+
+                data.get(
+
+                    "room",
+
+                    ""
+
                 )
 
+            ).upper()
 
-# =========================================================
-# SERVEUR
-# =========================================================
+
+
+            player = data.get(
+
+                "player"
+
+            )
+
+
+
+            session_token = data.get(
+
+                "session_token"
+
+            )
+
+
+
+            await handle_reconnect(
+
+                websocket,
+
+                room_code,
+
+                player,
+
+                session_token
+
+            )
+
+
+
+        elif message_type == "move":
+
+
+
+            await handle_move(
+
+                websocket,
+
+                data
+
+            )
+
+
+
+        elif message_type == "reset":
+
+
+
+            await handle_reset(
+
+                websocket,
+
+                data
+
+            )
+
+
+
+        else:
+
+
+
+            await send_json(
+
+                websocket,
+
+                {
+
+                    "type": "error",
+
+
+
+                    "message":
+
+                        "Commande inconnue."
+
+                }
+
+            )
+
+
+
+except websockets.exceptions.ConnectionClosed:
+
+    pass
+
+
+
+except Exception as error:
+
+
+
+    print(
+
+        "Erreur:",
+
+        error
+
+    )
+
+
+
+finally:
+
+
+
+    await mark_disconnected(
+
+        websocket
+
+    )
 
 async def main():
 
-    print(
-        "========================================"
-    )
+print(
+
+    f"Gomoku server starting on {HOST}:{PORT}"
+
+)
+
+
+
+asyncio.create_task(
+
+    timer_loop()
+
+)
+
+
+
+async with websockets.serve(
+
+    client_handler,
+
+    HOST,
+
+    PORT
+
+):
+
+
 
     print(
-        "   GOMOKU SERVER"
+
+        "Gomoku server is running."
+
     )
 
-    print(
-        "========================================"
-    )
-
-    print(
-        f"Serveur lancé sur {HOST}:{PORT}"
-    )
-
-    asyncio.create_task(
-        timer_loop()
-    )
-
-    async with websockets.serve(
-        client_handler,
-        HOST,
-        PORT,
-        ping_interval=20,
-        ping_timeout=20
-    ):
-
-        await asyncio.Future()
 
 
-# =========================================================
-# START
-# =========================================================
+    await asyncio.Future()
 
-if __name__ == "__main__":
+if name == “main”:
 
-    asyncio.run(
-        main()
-    )
+asyncio.run(
+
+    main()
+
+)
