@@ -43,17 +43,38 @@ def create_room():
             [0 for _ in range(BOARD_SIZE)]
             for _ in range(BOARD_SIZE)
         ],
+
         "players": {},
+
+        # 1 = Noir
+        # 2 = Rouge
         "turn": 1,
+
+        # Premier jeu: Noir kòmanse
+        "starter": 1,
+
         "black_time": START_TIME,
         "red_time": START_TIME,
+
         "last_timer_update": time.monotonic(),
+
         "game_over": False,
         "winner": 0,
         "draw": False,
+
         "black_score": 0,
         "red_score": 0,
-        "game_number": 1
+
+        "game_number": 1,
+
+        # Dènye kou a
+        "last_move": None,
+
+        # Rezilta dènye kou a te kreye
+        "last_move_was_win": False,
+
+        # Demande rejwe
+        "rematch_request": None
     }
 
     return room_code
@@ -95,9 +116,8 @@ def check_win(board, row, col, player):
             r -= dr
             c -= dc
 
-        # VICTOIRE UNIQUEMENT AVEC 5
-        # 6 ou plus = pas de victoire
-
+        # Egzakteman 5 sèlman
+        # 6 oswa plis pa genyen
         if count == 5:
             return True
 
@@ -115,15 +135,15 @@ def board_is_full(board):
 
 def update_timers(room):
 
-    if room["game_over"]:
+    # Lè gen demann rejwe,
+    # tan an rete kanpe pandan advèsè a ap reponn.
+    if room["game_over"] or room["rematch_request"] is not None:
         room["last_timer_update"] = time.monotonic()
         return
 
     now = time.monotonic()
 
-    elapsed = (
-        now - room["last_timer_update"]
-    )
+    elapsed = now - room["last_timer_update"]
 
     room["last_timer_update"] = now
 
@@ -161,24 +181,43 @@ def get_state(room):
 
     update_timers(room)
 
+    rematch_request = room["rematch_request"]
+
     return {
         "type": "state",
+
         "board": room["board"],
+
         "turn": room["turn"],
+
+        "starter": room["starter"],
+
         "black_time": max(
             0,
             room["black_time"]
         ),
+
         "red_time": max(
             0,
             room["red_time"]
         ),
+
         "game_over": room["game_over"],
+
         "winner": room["winner"],
+
         "draw": room["draw"],
+
         "black_score": room["black_score"],
+
         "red_score": room["red_score"],
+
         "game_number": room["game_number"],
+
+        "last_move": room["last_move"],
+
+        "rematch_request": rematch_request,
+
         "players": {
             str(player): {
                 "connected": data.get(
@@ -267,7 +306,8 @@ async def handle_create(websocket):
             "session_token": session_token,
             "black_score": room["black_score"],
             "red_score": room["red_score"],
-            "game_number": room["game_number"]
+            "game_number": room["game_number"],
+            "starter": room["starter"]
         }
     )
 
@@ -290,12 +330,10 @@ async def handle_join(websocket, room_code):
 
     room = rooms[room_code]
 
-    # Joueur 2 existe déjà
     if 2 in room["players"]:
 
         player_two = room["players"][2]
 
-        # Joueur 2 est actuellement connecté
         if player_two.get(
             "connected",
             False
@@ -312,7 +350,6 @@ async def handle_join(websocket, room_code):
 
             return
 
-        # Sa place est réservée pour sa reconnexion
         await send_json(
             websocket,
             {
@@ -341,7 +378,8 @@ async def handle_join(websocket, room_code):
             "session_token": session_token,
             "black_score": room["black_score"],
             "red_score": room["red_score"],
-            "game_number": room["game_number"]
+            "game_number": room["game_number"],
+            "starter": room["starter"]
         }
     )
 
@@ -445,7 +483,9 @@ async def handle_reconnect(
             "red_score":
                 room["red_score"],
             "game_number":
-                room["game_number"]
+                room["game_number"],
+            "starter":
+                room["starter"]
         }
     )
 
@@ -471,6 +511,21 @@ async def handle_move(websocket, data):
         return
 
     if player is None:
+        return
+
+    # Si yon demann rejwe ap tann,
+    # okenn nouvo kou pa kapab fèt.
+    if room["rematch_request"] is not None:
+
+        await send_json(
+            websocket,
+            {
+                "type": "error",
+                "message":
+                    "Attendez la réponse à la demande de rejouer."
+            }
+        )
+
         return
 
     update_timers(room)
@@ -535,7 +590,17 @@ async def handle_move(websocket, data):
 
         return
 
+    # Enregistrer le pion
     room["board"][row][col] = player
+
+    # Enregistrer le dernier coup
+    room["last_move"] = {
+        "row": row,
+        "col": col,
+        "player": player
+    }
+
+    room["last_move_was_win"] = False
 
     if check_win(
         room["board"],
@@ -546,6 +611,8 @@ async def handle_move(websocket, data):
 
         room["game_over"] = True
         room["winner"] = player
+
+        room["last_move_was_win"] = True
 
         if player == 1:
 
@@ -566,12 +633,200 @@ async def handle_move(websocket, data):
     else:
 
         if player == 1:
-
             room["turn"] = 2
+        else:
+            room["turn"] = 1
+
+    room["last_timer_update"] = time.monotonic()
+
+    await broadcast_state(room)
+
+
+async def handle_rematch_request(
+    websocket,
+    data
+):
+
+    room_code = data.get(
+        "room"
+    )
+
+    if room_code not in rooms:
+        return
+
+    room = rooms[room_code]
+
+    room_code_found, player = find_player_by_socket(
+        websocket
+    )
+
+    if room_code_found != room_code:
+        return
+
+    if player is None:
+        return
+
+    # Fòk gen yon dènye kou
+    if room["last_move"] is None:
+
+        await send_json(
+            websocket,
+            {
+                "type": "error",
+                "message":
+                    "Aucun coup à rejouer."
+            }
+        )
+
+        return
+
+    # Se sèlman moun ki fè dènye kou a
+    # ki kapab mande rejwe.
+    if room["last_move"]["player"] != player:
+
+        await send_json(
+            websocket,
+            {
+                "type": "error",
+                "message":
+                    "Seul le joueur qui vient de jouer peut demander à rejouer."
+            }
+        )
+
+        return
+
+    # Pa gen 2 demann an menm tan
+    if room["rematch_request"] is not None:
+
+        await send_json(
+            websocket,
+            {
+                "type": "error",
+                "message":
+                    "Une demande de rejouer est déjà en attente."
+            }
+        )
+
+        return
+
+    room["rematch_request"] = player
+
+    # Timer la kanpe
+    room["last_timer_update"] = time.monotonic()
+
+    await broadcast_state(room)
+
+
+async def handle_rematch_response(
+    websocket,
+    data
+):
+
+    room_code = data.get(
+        "room"
+    )
+
+    if room_code not in rooms:
+        return
+
+    room = rooms[room_code]
+
+    room_code_found, player = find_player_by_socket(
+        websocket
+    )
+
+    if room_code_found != room_code:
+        return
+
+    if player is None:
+        return
+
+    requester = room["rematch_request"]
+
+    if requester is None:
+
+        await send_json(
+            websocket,
+            {
+                "type": "error",
+                "message":
+                    "Aucune demande de rejouer."
+            }
+        )
+
+        return
+
+    # Moun ki mande a pa kapab aksepte/refize
+    if player == requester:
+
+        await send_json(
+            websocket,
+            {
+                "type": "error",
+                "message":
+                    "L'adversaire doit répondre à la demande."
+            }
+        )
+
+        return
+
+    accepted = bool(
+        data.get("accepted", False)
+    )
+
+    if not accepted:
+
+        # Refize
+        room["rematch_request"] = None
+        room["last_timer_update"] = time.monotonic()
+
+        await broadcast_state(room)
+
+        return
+
+    # ACCEPTÉ
+    last_move = room["last_move"]
+
+    if last_move is None:
+
+        room["rematch_request"] = None
+
+        await broadcast_state(room)
+
+        return
+
+    row = last_move["row"]
+    col = last_move["col"]
+    last_player = last_move["player"]
+
+    # Retire dènye pion an
+    room["board"][row][col] = 0
+
+    # Si dènye kou a te bay viktwa,
+    # retire pwen li te pran an.
+    if room["last_move_was_win"]:
+
+        if last_player == 1:
+
+            if room["black_score"] > 0:
+                room["black_score"] -= 1
 
         else:
 
-            room["turn"] = 1
+            if room["red_score"] > 0:
+                room["red_score"] -= 1
+
+    # Jwèt la tounen nan eta anvan dènye kou a
+    room["game_over"] = False
+    room["winner"] = 0
+    room["draw"] = False
+
+    # Se moun ki te mande rejwe a ki jwenn tou li ankò.
+    room["turn"] = last_player
+
+    room["last_move"] = None
+    room["last_move_was_win"] = False
+    room["rematch_request"] = None
 
     room["last_timer_update"] = time.monotonic()
 
@@ -599,12 +854,30 @@ async def handle_reset(websocket, data):
     if player is None:
         return
 
+    # Si pati a fini, starter la chanje.
+    # 1 = Noir
+    # 2 = Rouge
+    #
+    # Game 1 = Noir
+    # Game 2 = Rouge
+    # Game 3 = Noir
+    # Game 4 = Rouge
+
+    if room["game_over"]:
+
+        if room["starter"] == 1:
+            room["starter"] = 2
+        else:
+            room["starter"] = 1
+
+        room["game_number"] += 1
+
     room["board"] = [
         [0 for _ in range(BOARD_SIZE)]
         for _ in range(BOARD_SIZE)
     ]
 
-    room["turn"] = 1
+    room["turn"] = room["starter"]
 
     room["black_time"] = START_TIME
     room["red_time"] = START_TIME
@@ -615,8 +888,12 @@ async def handle_reset(websocket, data):
     room["winner"] = 0
     room["draw"] = False
 
+    room["last_move"] = None
+    room["last_move_was_win"] = False
+
+    room["rematch_request"] = None
+
     # Score yo pa efase.
-    room["game_number"] += 1
 
     await broadcast_state(room)
 
@@ -655,6 +932,9 @@ async def timer_loop():
         ):
 
             if room["game_over"]:
+                continue
+
+            if room["rematch_request"] is not None:
                 continue
 
             before_black = room["black_time"]
@@ -755,6 +1035,20 @@ async def client_handler(websocket):
             elif message_type == "move":
 
                 await handle_move(
+                    websocket,
+                    data
+                )
+
+            elif message_type == "rematch_request":
+
+                await handle_rematch_request(
+                    websocket,
+                    data
+                )
+
+            elif message_type == "rematch_response":
+
+                await handle_rematch_response(
                     websocket,
                     data
                 )
