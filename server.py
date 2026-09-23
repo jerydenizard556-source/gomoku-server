@@ -4,6 +4,9 @@ import secrets
 import string
 import time
 import os
+import hashlib
+import hmac
+import re
 
 import websockets
 import psycopg2
@@ -54,6 +57,391 @@ else:
 
 
 # =========================================================
+# PASSWORD SECURITY
+# =========================================================
+
+def hash_password(password):
+    salt = secrets.token_bytes(16)
+
+    password_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        200000
+    )
+
+    return (
+        "pbkdf2_sha256$200000$"
+        + salt.hex()
+        + "$"
+        + password_hash.hex()
+    )
+
+
+def verify_password(password, stored_hash):
+    try:
+        parts = stored_hash.split("$")
+
+        if len(parts) != 4:
+            return False
+
+        algorithm = parts[0]
+        iterations = int(parts[1])
+        salt = bytes.fromhex(parts[2])
+        expected_hash = bytes.fromhex(parts[3])
+
+        if algorithm != "pbkdf2_sha256":
+            return False
+
+        password_hash = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt,
+            iterations
+        )
+
+        return hmac.compare_digest(
+            password_hash,
+            expected_hash
+        )
+
+    except Exception:
+        return False
+
+
+# =========================================================
+# ACCOUNT VALIDATION
+# =========================================================
+
+def valid_username(username):
+    if not username:
+        return False
+
+    if len(username) < 3 or len(username) > 50:
+        return False
+
+    return re.fullmatch(
+        r"[A-Za-z0-9_]+",
+        username
+    ) is not None
+
+
+def valid_email(email):
+    if not email:
+        return False
+
+    if len(email) > 255:
+        return False
+
+    return re.fullmatch(
+        r"[^@\s]+@[^@\s]+\.[^@\s]+",
+        email
+    ) is not None
+
+
+# =========================================================
+# ACCOUNT — REGISTER
+# =========================================================
+
+async def handle_register(
+    websocket,
+    username,
+    email,
+    password,
+    password_confirmation
+):
+
+    if db is None:
+        await send_json(
+            websocket,
+            {
+                "type": "register_result",
+                "success": False,
+                "message": "Database pa disponib."
+            }
+        )
+        return
+
+    username = str(username or "").strip()
+    email = str(email or "").strip().lower()
+    password = str(password or "")
+    password_confirmation = str(
+        password_confirmation or ""
+    )
+
+    if not valid_username(username):
+        await send_json(
+            websocket,
+            {
+                "type": "register_result",
+                "success": False,
+                "message": (
+                    "Pseudo a dwe genyen 3-50 karaktè "
+                    "epi sèlman lèt, chif oswa _."
+                )
+            }
+        )
+        return
+
+    if not valid_email(email):
+        await send_json(
+            websocket,
+            {
+                "type": "register_result",
+                "success": False,
+                "message": "Email la pa valid."
+            }
+        )
+        return
+
+    if len(password) < 8:
+        await send_json(
+            websocket,
+            {
+                "type": "register_result",
+                "success": False,
+                "message": (
+                    "Password la dwe genyen "
+                    "omwen 8 karaktè."
+                )
+            }
+        )
+        return
+
+    if password != password_confirmation:
+        await send_json(
+            websocket,
+            {
+                "type": "register_result",
+                "success": False,
+                "message": "Password yo pa menm."
+            }
+        )
+        return
+
+    try:
+        cursor = db.cursor()
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM players
+            WHERE LOWER(username) = LOWER(%s)
+            """,
+            (username,)
+        )
+
+        if cursor.fetchone() is not None:
+            cursor.close()
+
+            await send_json(
+                websocket,
+                {
+                    "type": "register_result",
+                    "success": False,
+                    "message": "Pseudo sa deja itilize."
+                }
+            )
+            return
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM players
+            WHERE LOWER(email) = LOWER(%s)
+            """,
+            (email,)
+        )
+
+        if cursor.fetchone() is not None:
+            cursor.close()
+
+            await send_json(
+                websocket,
+                {
+                    "type": "register_result",
+                    "success": False,
+                    "message": "Email sa deja itilize."
+                }
+            )
+            return
+
+        password_hash = hash_password(password)
+
+        cursor.execute(
+            """
+            INSERT INTO players
+            (
+                username,
+                email,
+                password_hash
+            )
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            (
+                username,
+                email,
+                password_hash
+            )
+        )
+
+        player_id = cursor.fetchone()[0]
+
+        cursor.close()
+
+        await send_json(
+            websocket,
+            {
+                "type": "register_result",
+                "success": True,
+                "message": "Kont lan kreye avèk siksè.",
+                "player_id": player_id,
+                "username": username,
+                "email": email
+            }
+        )
+
+    except Exception as e:
+
+        print(
+            "Register error:",
+            repr(e)
+        )
+
+        await send_json(
+            websocket,
+            {
+                "type": "register_result",
+                "success": False,
+                "message": "Erè pandan kreyasyon kont lan."
+            }
+        )
+
+
+# =========================================================
+# ACCOUNT — LOGIN
+# =========================================================
+
+async def handle_login(
+    websocket,
+    login,
+    password
+):
+
+    if db is None:
+        await send_json(
+            websocket,
+            {
+                "type": "login_result",
+                "success": False,
+                "message": "Database pa disponib."
+            }
+        )
+        return
+
+    login = str(login or "").strip()
+    password = str(password or "")
+
+    if not login or not password:
+        await send_json(
+            websocket,
+            {
+                "type": "login_result",
+                "success": False,
+                "message": "Tanpri ranpli tout chan yo."
+            }
+        )
+        return
+
+    try:
+        cursor = db.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                username,
+                email,
+                password_hash
+            FROM players
+            WHERE LOWER(username) = LOWER(%s)
+               OR LOWER(email) = LOWER(%s)
+            LIMIT 1
+            """,
+            (
+                login,
+                login
+            )
+        )
+
+        player = cursor.fetchone()
+
+        cursor.close()
+
+        if player is None:
+            await send_json(
+                websocket,
+                {
+                    "type": "login_result",
+                    "success": False,
+                    "message": "Pseudo/email oswa password la pa kòrèk."
+                }
+            )
+            return
+
+        player_id = player[0]
+        username = player[1]
+        email = player[2]
+        stored_hash = player[3]
+
+        if not verify_password(
+            password,
+            stored_hash
+        ):
+            await send_json(
+                websocket,
+                {
+                    "type": "login_result",
+                    "success": False,
+                    "message": "Pseudo/email oswa password la pa kòrèk."
+                }
+            )
+            return
+
+        account_token = secrets.token_urlsafe(32)
+
+        await send_json(
+            websocket,
+            {
+                "type": "login_result",
+                "success": True,
+                "message": "Login reyisi.",
+                "player_id": player_id,
+                "username": username,
+                "email": email,
+                "account_token": account_token
+            }
+        )
+
+    except Exception as e:
+
+        print(
+            "Login error:",
+            repr(e)
+        )
+
+        await send_json(
+            websocket,
+            {
+                "type": "login_result",
+                "success": False,
+                "message": "Erè pandan login."
+            }
+        )
+
+
+# =========================================================
 # GAME DATA
 # =========================================================
 
@@ -66,7 +454,9 @@ matchmaking_queue = []
 # =========================================================
 
 def create_room_code():
+
     while True:
+
         code = "".join(
             secrets.choice(
                 string.ascii_uppercase + string.digits
@@ -83,6 +473,7 @@ def create_session_token():
 
 
 def new_room():
+
     code = create_room_code()
 
     rooms[code] = {
@@ -121,7 +512,11 @@ def new_room():
     return code
 
 
-def create_match_room(websocket1, websocket2):
+def create_match_room(
+    websocket1,
+    websocket2
+):
+
     code = create_room_code()
 
     rooms[code] = {
@@ -178,7 +573,13 @@ def create_match_room(websocket1, websocket2):
 # WIN / BOARD
 # =========================================================
 
-def get_winning_line(board, row, col, player):
+def get_winning_line(
+    board,
+    row,
+    col,
+    player
+):
+
     directions = [
         (0, 1),
         (1, 0),
@@ -187,6 +588,7 @@ def get_winning_line(board, row, col, player):
     ]
 
     for dr, dc in directions:
+
         line = [(row, col)]
 
         r = row - dr
@@ -197,7 +599,11 @@ def get_winning_line(board, row, col, player):
             and 0 <= c < BOARD_SIZE
             and board[r][c] == player
         ):
-            line.insert(0, (r, c))
+
+            line.insert(
+                0,
+                (r, c)
+            )
 
             r -= dr
             c -= dc
@@ -210,19 +616,24 @@ def get_winning_line(board, row, col, player):
             and 0 <= c < BOARD_SIZE
             and board[r][c] == player
         ):
-            line.append((r, c))
+
+            line.append(
+                (r, c)
+            )
 
             r += dr
             c += dc
 
-        if len(line) == 5:
+        if len(line) >= 5:
             return line
 
     return None
 
 
 def board_is_full(board):
+
     for row in board:
+
         if 0 in row:
             return False
 
@@ -234,17 +645,25 @@ def board_is_full(board):
 # =========================================================
 
 def update_timers(room):
+
     if room["game_over"]:
+
         room["last_timer_update"] = time.monotonic()
+
         return
 
     if room["rematch_request"] is not None:
+
         room["last_timer_update"] = time.monotonic()
+
         return
 
     now = time.monotonic()
 
-    elapsed = now - room["last_timer_update"]
+    elapsed = (
+        now
+        - room["last_timer_update"]
+    )
 
     if elapsed <= 0:
         return
@@ -263,8 +682,11 @@ def update_timers(room):
             room["black_time"] = 0
 
             room["game_over"] = True
+
             room["winner"] = 2
+
             room["draw"] = False
+
             room["winning_line"] = None
 
             room["red_score"] += 1
@@ -281,8 +703,11 @@ def update_timers(room):
             room["red_time"] = 0
 
             room["game_over"] = True
+
             room["winner"] = 1
+
             room["draw"] = False
+
             room["winning_line"] = None
 
             room["black_score"] += 1
@@ -293,6 +718,7 @@ def update_timers(room):
 # =========================================================
 
 def get_state(room):
+
     update_timers(room)
 
     return {
@@ -350,8 +776,13 @@ def get_state(room):
 # WEBSOCKET HELPERS
 # =========================================================
 
-async def send_json(websocket, data):
+async def send_json(
+    websocket,
+    data
+):
+
     try:
+
         await websocket.send(
             json.dumps(data)
         )
@@ -361,11 +792,14 @@ async def send_json(websocket, data):
 
 
 async def broadcast_state(room):
+
     state = get_state(room)
 
     for player_data in room["players"].values():
 
-        websocket = player_data.get("socket")
+        websocket = player_data.get(
+            "socket"
+        )
 
         if websocket is not None:
 
@@ -375,7 +809,11 @@ async def broadcast_state(room):
             )
 
 
-def find_player_by_socket(room, websocket):
+def find_player_by_socket(
+    room,
+    websocket
+):
+
     for player, data in room["players"].items():
 
         if data.get("socket") == websocket:
@@ -389,6 +827,7 @@ def find_player_by_socket(room, websocket):
 # =========================================================
 
 async def handle_create(websocket):
+
     room_code = new_room()
 
     room = rooms[room_code]
@@ -419,8 +858,14 @@ async def handle_create(websocket):
 # JOIN ROOM
 # =========================================================
 
-async def handle_join(websocket, room_code):
-    room_code = str(room_code).upper().strip()
+async def handle_join(
+    websocket,
+    room_code
+):
+
+    room_code = str(
+        room_code
+    ).upper().strip()
 
     if room_code not in rooms:
 
@@ -495,8 +940,13 @@ async def handle_find_match(websocket):
 
         room = rooms[room_code]
 
-        player1_token = room["players"][1]["session_token"]
-        player2_token = room["players"][2]["session_token"]
+        player1_token = room["players"][1][
+            "session_token"
+        ]
+
+        player2_token = room["players"][2][
+            "session_token"
+        ]
 
         await send_json(
             websocket2,
@@ -568,7 +1018,9 @@ async def handle_reconnect(
     session_token
 ):
 
-    room_code = str(room_code).upper().strip()
+    room_code = str(
+        room_code
+    ).upper().strip()
 
     try:
         player = int(player)
@@ -595,7 +1047,9 @@ async def handle_reconnect(
 
     player_data = room["players"][player]
 
-    if player_data.get("session_token") != session_token:
+    if player_data.get(
+        "session_token"
+    ) != session_token:
 
         await send_json(
             websocket,
@@ -608,6 +1062,7 @@ async def handle_reconnect(
         return
 
     player_data["socket"] = websocket
+
     player_data["connected"] = True
 
     await send_json(
@@ -634,7 +1089,9 @@ async def handle_move(
     col
 ):
 
-    room_code = str(room_code).upper().strip()
+    room_code = str(
+        room_code
+    ).upper().strip()
 
     if room_code not in rooms:
         return
@@ -659,6 +1116,7 @@ async def handle_move(
         return
 
     try:
+
         row = int(row)
         col = int(col)
 
@@ -721,12 +1179,16 @@ async def handle_move(
         room["last_move_was_win"] = True
 
         if player == 1:
+
             room["black_score"] += 1
 
         else:
+
             room["red_score"] += 1
 
-    elif board_is_full(room["board"]):
+    elif board_is_full(
+        room["board"]
+    ):
 
         room["game_over"] = True
 
@@ -737,11 +1199,14 @@ async def handle_move(
     else:
 
         room["turn"] = (
-            2 if player == 1
+            2
+            if player == 1
             else 1
         )
 
-    room["last_timer_update"] = time.monotonic()
+    room["last_timer_update"] = (
+        time.monotonic()
+    )
 
     await broadcast_state(room)
 
@@ -755,7 +1220,9 @@ async def handle_rematch_request(
     room_code
 ):
 
-    room_code = str(room_code).upper().strip()
+    room_code = str(
+        room_code
+    ).upper().strip()
 
     if room_code not in rooms:
         return
@@ -783,7 +1250,9 @@ async def handle_rematch_request(
 
     room["rematch_request"] = player
 
-    room["last_timer_update"] = time.monotonic()
+    room["last_timer_update"] = (
+        time.monotonic()
+    )
 
     await broadcast_state(room)
 
@@ -798,7 +1267,9 @@ async def handle_rematch_response(
     accepted
 ):
 
-    room_code = str(room_code).upper().strip()
+    room_code = str(
+        room_code
+    ).upper().strip()
 
     if room_code not in rooms:
         return
@@ -866,7 +1337,9 @@ async def handle_rematch_response(
 
     room["rematch_request"] = None
 
-    room["last_timer_update"] = time.monotonic()
+    room["last_timer_update"] = (
+        time.monotonic()
+    )
 
     await broadcast_state(room)
 
@@ -880,7 +1353,9 @@ async def handle_reset(
     room_code
 ):
 
-    room_code = str(room_code).upper().strip()
+    room_code = str(
+        room_code
+    ).upper().strip()
 
     if room_code not in rooms:
         return
@@ -899,7 +1374,8 @@ async def handle_reset(
         return
 
     room["starter"] = (
-        2 if room["starter"] == 1
+        2
+        if room["starter"] == 1
         else 1
     )
 
@@ -916,7 +1392,9 @@ async def handle_reset(
 
     room["red_time"] = START_TIME
 
-    room["last_timer_update"] = time.monotonic()
+    room["last_timer_update"] = (
+        time.monotonic()
+    )
 
     room["game_over"] = False
 
@@ -939,7 +1417,9 @@ async def handle_reset(
 # DISCONNECT
 # =========================================================
 
-async def mark_disconnected(websocket):
+async def mark_disconnected(
+    websocket
+):
 
     matchmaking_queue[:] = [
         item
@@ -947,7 +1427,9 @@ async def mark_disconnected(websocket):
         if item["socket"] is not websocket
     ]
 
-    for room in list(rooms.values()):
+    for room in list(
+        rooms.values()
+    ):
 
         player = find_player_by_socket(
             room,
@@ -956,9 +1438,13 @@ async def mark_disconnected(websocket):
 
         if player is not None:
 
-            room["players"][player]["connected"] = False
+            room["players"][player][
+                "connected"
+            ] = False
 
-            room["players"][player]["socket"] = None
+            room["players"][player][
+                "socket"
+            ] = None
 
             await broadcast_state(room)
 
@@ -975,7 +1461,9 @@ async def timer_loop():
 
         await asyncio.sleep(1)
 
-        for room in list(rooms.values()):
+        for room in list(
+            rooms.values()
+        ):
 
             if room["game_over"]:
                 continue
@@ -1006,7 +1494,9 @@ async def timer_loop():
 # CLIENT HANDLER
 # =========================================================
 
-async def client_handler(websocket):
+async def client_handler(
+    websocket
+):
 
     try:
 
@@ -1028,9 +1518,40 @@ async def client_handler(websocket):
 
                 continue
 
-            message_type = data.get("type")
+            message_type = data.get(
+                "type"
+            )
 
-            if message_type == "create":
+            # -------------------------------------------------
+            # ACCOUNT
+            # -------------------------------------------------
+
+            if message_type == "register":
+
+                await handle_register(
+                    websocket,
+                    data.get("username", ""),
+                    data.get("email", ""),
+                    data.get("password", ""),
+                    data.get(
+                        "password_confirmation",
+                        ""
+                    )
+                )
+
+            elif message_type == "login":
+
+                await handle_login(
+                    websocket,
+                    data.get("login", ""),
+                    data.get("password", "")
+                )
+
+            # -------------------------------------------------
+            # GOMOKU
+            # -------------------------------------------------
+
+            elif message_type == "create":
 
                 await handle_create(
                     websocket
@@ -1040,7 +1561,10 @@ async def client_handler(websocket):
 
                 await handle_join(
                     websocket,
-                    data.get("room", "")
+                    data.get(
+                        "room",
+                        ""
+                    )
                 )
 
             elif message_type == "find_match":
@@ -1059,32 +1583,53 @@ async def client_handler(websocket):
 
                 await handle_reconnect(
                     websocket,
-                    data.get("room", ""),
-                    data.get("player"),
-                    data.get("session_token", "")
+                    data.get(
+                        "room",
+                        ""
+                    ),
+                    data.get(
+                        "player"
+                    ),
+                    data.get(
+                        "session_token",
+                        ""
+                    )
                 )
 
             elif message_type == "move":
 
                 await handle_move(
                     websocket,
-                    data.get("room", ""),
-                    data.get("row"),
-                    data.get("col")
+                    data.get(
+                        "room",
+                        ""
+                    ),
+                    data.get(
+                        "row"
+                    ),
+                    data.get(
+                        "col"
+                    )
                 )
 
             elif message_type == "rematch_request":
 
                 await handle_rematch_request(
                     websocket,
-                    data.get("room", "")
+                    data.get(
+                        "room",
+                        ""
+                    )
                 )
 
             elif message_type == "rematch_response":
 
                 await handle_rematch_response(
                     websocket,
-                    data.get("room", ""),
+                    data.get(
+                        "room",
+                        ""
+                    ),
                     bool(
                         data.get(
                             "accepted",
@@ -1097,7 +1642,10 @@ async def client_handler(websocket):
 
                 await handle_reset(
                     websocket,
-                    data.get("room", "")
+                    data.get(
+                        "room",
+                        ""
+                    )
                 )
 
             else:
@@ -1106,7 +1654,9 @@ async def client_handler(websocket):
                     websocket,
                     {
                         "type": "error",
-                        "message": "Type de message inconnu."
+                        "message": (
+                            "Type de message inconnu."
+                        )
                     }
                 )
 
