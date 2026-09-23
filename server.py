@@ -140,6 +140,44 @@ def valid_email(email):
 
 
 # =========================================================
+# CONNECTED ACCOUNTS
+# =========================================================
+
+connected_accounts = {}
+
+
+def set_connected_account(
+    websocket,
+    player_id,
+    username,
+    email,
+    account_token
+):
+    connected_accounts[websocket] = {
+        "player_id": player_id,
+        "username": username,
+        "email": email,
+        "account_token": account_token,
+    }
+
+
+def get_connected_account(websocket):
+    return connected_accounts.get(websocket)
+
+
+def get_socket_username(websocket, fallback):
+    account = get_connected_account(websocket)
+
+    if account:
+        return account.get(
+            "username",
+            fallback
+        )
+
+    return fallback
+
+
+# =========================================================
 # ACCOUNT — REGISTER
 # =========================================================
 
@@ -290,6 +328,16 @@ async def handle_register(
 
         cursor.close()
 
+        account_token = secrets.token_urlsafe(32)
+
+        set_connected_account(
+            websocket,
+            player_id,
+            username,
+            email,
+            account_token
+        )
+
         await send_json(
             websocket,
             {
@@ -298,7 +346,8 @@ async def handle_register(
                 "message": "Kont lan kreye avèk siksè.",
                 "player_id": player_id,
                 "username": username,
-                "email": email
+                "email": email,
+                "account_token": account_token
             }
         )
 
@@ -411,6 +460,14 @@ async def handle_login(
 
         account_token = secrets.token_urlsafe(32)
 
+        set_connected_account(
+            websocket,
+            player_id,
+            username,
+            email,
+            account_token
+        )
+
         await send_json(
             websocket,
             {
@@ -472,17 +529,23 @@ def create_session_token():
     return secrets.token_urlsafe(32)
 
 
+def empty_board():
+    return [
+        [0 for _ in range(BOARD_SIZE)]
+        for _ in range(BOARD_SIZE)
+    ]
+
+
 def new_room():
 
     code = create_room_code()
 
     rooms[code] = {
-        "board": [
-            [0 for _ in range(BOARD_SIZE)]
-            for _ in range(BOARD_SIZE)
-        ],
+        "board": empty_board(),
 
         "players": {},
+
+        "spectators": set(),
 
         "turn": 1,
         "starter": 1,
@@ -519,11 +582,18 @@ def create_match_room(
 
     code = create_room_code()
 
+    username1 = get_socket_username(
+        websocket1,
+        "Joueur 1"
+    )
+
+    username2 = get_socket_username(
+        websocket2,
+        "Joueur 2"
+    )
+
     rooms[code] = {
-        "board": [
-            [0 for _ in range(BOARD_SIZE)]
-            for _ in range(BOARD_SIZE)
-        ],
+        "board": empty_board(),
 
         "players": {
             1: {
@@ -531,6 +601,7 @@ def create_match_room(
                 "connected": True,
                 "session_token": create_session_token(),
                 "room": code,
+                "username": username1,
             },
 
             2: {
@@ -538,8 +609,11 @@ def create_match_room(
                 "connected": True,
                 "session_token": create_session_token(),
                 "room": code,
+                "username": username2,
             },
         },
+
+        "spectators": set(),
 
         "turn": 1,
         "starter": 1,
@@ -567,6 +641,41 @@ def create_match_room(
     }
 
     return code
+
+
+# =========================================================
+# PLAYER INFORMATION
+# =========================================================
+
+def player_state(room, player_number):
+
+    player = room["players"].get(
+        player_number,
+        {}
+    )
+
+    default_name = (
+        "Joueur 1"
+        if player_number == 1
+        else "Joueur 2"
+    )
+
+    return {
+        "connected": player.get(
+            "connected",
+            False
+        ),
+
+        "username": player.get(
+            "username",
+            default_name
+        ),
+
+        "name": player.get(
+            "username",
+            default_name
+        ),
+    }
 
 
 # =========================================================
@@ -721,6 +830,11 @@ def get_state(room):
 
     update_timers(room)
 
+    spectators = room.get(
+        "spectators",
+        set()
+    )
+
     return {
         "type": "state",
 
@@ -748,27 +862,35 @@ def get_state(room):
 
         "rematch_request": room["rematch_request"],
 
-        "players": {
-            "1": {
-                "connected": room["players"].get(
-                    1,
-                    {}
-                ).get(
-                    "connected",
-                    False
-                )
-            },
+        # -------------------------------------------------
+        # PLAYERS
+        # -------------------------------------------------
 
-            "2": {
-                "connected": room["players"].get(
-                    2,
-                    {}
-                ).get(
-                    "connected",
-                    False
-                )
-            },
+        "players": {
+            "1": player_state(room, 1),
+            "2": player_state(room, 2),
         },
+
+        # -------------------------------------------------
+        # SPECTATORS
+        # -------------------------------------------------
+
+        "spectator_count": len(spectators),
+
+        "spectators_count": len(spectators),
+
+        "waiting": (
+            1 not in room["players"]
+            or 2 not in room["players"]
+            or not room["players"].get(1, {}).get(
+                "connected",
+                False
+            )
+            or not room["players"].get(2, {}).get(
+                "connected",
+                False
+            )
+        ),
     }
 
 
@@ -795,6 +917,10 @@ async def broadcast_state(room):
 
     state = get_state(room)
 
+    # -----------------------------------------------------
+    # SEND TO PLAYERS
+    # -----------------------------------------------------
+
     for player_data in room["players"].values():
 
         websocket = player_data.get(
@@ -807,6 +933,24 @@ async def broadcast_state(room):
                 websocket,
                 state
             )
+
+    # -----------------------------------------------------
+    # SEND TO ALL SPECTATORS
+    # -----------------------------------------------------
+
+    spectators = list(
+        room.get(
+            "spectators",
+            set()
+        )
+    )
+
+    for websocket in spectators:
+
+        await send_json(
+            websocket,
+            state
+        )
 
 
 def find_player_by_socket(
@@ -822,6 +966,22 @@ def find_player_by_socket(
     return None
 
 
+def remove_socket_from_spectators(websocket):
+
+    for room in rooms.values():
+
+        spectators = room.get(
+            "spectators",
+            set()
+        )
+
+        if websocket in spectators:
+
+            spectators.discard(
+                websocket
+            )
+
+
 # =========================================================
 # CREATE ROOM
 # =========================================================
@@ -834,11 +994,17 @@ async def handle_create(websocket):
 
     token = create_session_token()
 
+    username = get_socket_username(
+        websocket,
+        "Joueur 1"
+    )
+
     room["players"][1] = {
         "socket": websocket,
         "connected": True,
         "session_token": token,
         "room": room_code,
+        "username": username,
     }
 
     await send_json(
@@ -848,6 +1014,7 @@ async def handle_create(websocket):
             "room": room_code,
             "player": 1,
             "session_token": token,
+            "username": username,
         }
     )
 
@@ -887,7 +1054,7 @@ async def handle_join(
             websocket,
             {
                 "type": "error",
-                "message": "Room sa deja gen 2 jwè."
+                "message": "Room sa deja gen 2 jwè. Ou ka antre kòm spectateur."
             }
         )
 
@@ -895,11 +1062,17 @@ async def handle_join(
 
     token = create_session_token()
 
+    username = get_socket_username(
+        websocket,
+        "Joueur 2"
+    )
+
     room["players"][2] = {
         "socket": websocket,
         "connected": True,
         "session_token": token,
         "room": room_code,
+        "username": username,
     }
 
     await send_json(
@@ -909,6 +1082,110 @@ async def handle_join(
             "room": room_code,
             "player": 2,
             "session_token": token,
+            "username": username,
+        }
+    )
+
+    await broadcast_state(room)
+
+
+# =========================================================
+# SPECTATOR — WATCH ROOM
+# =========================================================
+
+async def handle_watch(
+    websocket,
+    room_code
+):
+
+    room_code = str(
+        room_code or ""
+    ).upper().strip()
+
+    if not room_code:
+
+        await send_json(
+            websocket,
+            {
+                "type": "watch_error",
+                "success": False,
+                "message": "Tanpri antre kòd sal la."
+            }
+        )
+
+        return
+
+    if room_code not in rooms:
+
+        await send_json(
+            websocket,
+            {
+                "type": "watch_error",
+                "success": False,
+                "message": "Match sa pa egziste."
+            }
+        )
+
+        return
+
+    room = rooms[room_code]
+
+    # Remove from any previous room
+    remove_socket_from_spectators(websocket)
+
+    room.setdefault(
+        "spectators",
+        set()
+    )
+
+    room["spectators"].add(
+        websocket
+    )
+
+    await send_json(
+        websocket,
+        {
+            "type": "watching",
+            "room": room_code,
+            "spectator": True,
+            "message": "Ou antre kòm spectateur.",
+        }
+    )
+
+    await broadcast_state(room)
+
+
+# =========================================================
+# STOP WATCHING
+# =========================================================
+
+async def handle_stop_watching(
+    websocket,
+    room_code
+):
+
+    room_code = str(
+        room_code or ""
+    ).upper().strip()
+
+    if room_code not in rooms:
+        return
+
+    room = rooms[room_code]
+
+    room.setdefault(
+        "spectators",
+        set()
+    )
+
+    room["spectators"].discard(
+        websocket
+    )
+
+    await send_json(
+        websocket,
+        {
+            "type": "watch_stopped"
         }
     )
 
@@ -920,6 +1197,13 @@ async def handle_join(
 # =========================================================
 
 async def handle_find_match(websocket):
+
+    # A player searching for a match cannot remain
+    # spectator in another room.
+
+    remove_socket_from_spectators(
+        websocket
+    )
 
     matchmaking_queue[:] = [
         item
@@ -955,6 +1239,9 @@ async def handle_find_match(websocket):
                 "room": room_code,
                 "player": 1,
                 "session_token": player1_token,
+                "username": room["players"][1][
+                    "username"
+                ],
             }
         )
 
@@ -965,6 +1252,9 @@ async def handle_find_match(websocket):
                 "room": room_code,
                 "player": 2,
                 "session_token": player2_token,
+                "username": room["players"][2][
+                    "username"
+                ],
             }
         )
 
@@ -1061,9 +1351,22 @@ async def handle_reconnect(
 
         return
 
+    # Remove this socket from spectator mode if needed.
+    room.setdefault(
+        "spectators",
+        set()
+    ).discard(websocket)
+
     player_data["socket"] = websocket
 
     player_data["connected"] = True
+
+    # Keep username.
+    if not player_data.get("username"):
+        player_data["username"] = get_socket_username(
+            websocket,
+            "Joueur " + str(player)
+        )
 
     await send_json(
         websocket,
@@ -1072,6 +1375,9 @@ async def handle_reconnect(
             "room": room_code,
             "player": player,
             "session_token": session_token,
+            "username": player_data.get(
+                "username"
+            ),
         }
     )
 
@@ -1098,12 +1404,25 @@ async def handle_move(
 
     room = rooms[room_code]
 
+    # -----------------------------------------------------
+    # IMPORTANT:
+    # Only players can make moves.
+    # Spectators are automatically rejected.
+    # -----------------------------------------------------
+
     player = find_player_by_socket(
         room,
         websocket
     )
 
     if player is None:
+        await send_json(
+            websocket,
+            {
+                "type": "error",
+                "message": "Spectatè yo pa kapab jwe."
+            }
+        )
         return
 
     if room["game_over"]:
@@ -1383,10 +1702,7 @@ async def handle_reset(
 
     room["game_number"] += 1
 
-    room["board"] = [
-        [0 for _ in range(BOARD_SIZE)]
-        for _ in range(BOARD_SIZE)
-    ]
+    room["board"] = empty_board()
 
     room["black_time"] = START_TIME
 
@@ -1421,11 +1737,53 @@ async def mark_disconnected(
     websocket
 ):
 
+    # -----------------------------------------------------
+    # Remove from matchmaking queue
+    # -----------------------------------------------------
+
     matchmaking_queue[:] = [
         item
         for item in matchmaking_queue
         if item["socket"] is not websocket
     ]
+
+    # -----------------------------------------------------
+    # Remove account connection
+    # -----------------------------------------------------
+
+    connected_accounts.pop(
+        websocket,
+        None
+    )
+
+    # -----------------------------------------------------
+    # Remove from spectator rooms
+    # -----------------------------------------------------
+
+    spectator_rooms = []
+
+    for room_code, room in list(
+        rooms.items()
+    ):
+
+        spectators = room.get(
+            "spectators",
+            set()
+        )
+
+        if websocket in spectators:
+
+            spectators.discard(
+                websocket
+            )
+
+            spectator_rooms.append(
+                room
+            )
+
+    # -----------------------------------------------------
+    # Check if it was a player
+    # -----------------------------------------------------
 
     for room in list(
         rooms.values()
@@ -1446,9 +1804,22 @@ async def mark_disconnected(
                 "socket"
             ] = None
 
-            await broadcast_state(room)
+            await broadcast_state(
+                room
+            )
 
             return
+
+    # -----------------------------------------------------
+    # If it was only a spectator,
+    # update all remaining clients.
+    # -----------------------------------------------------
+
+    for room in spectator_rooms:
+
+        await broadcast_state(
+            room
+        )
 
 
 # =========================================================
@@ -1487,7 +1858,9 @@ async def timer_loop():
 
             if changed:
 
-                await broadcast_state(room)
+                await broadcast_state(
+                    room
+                )
 
 
 # =========================================================
@@ -1522,17 +1895,26 @@ async def client_handler(
                 "type"
             )
 
-            # -------------------------------------------------
+            # =================================================
             # ACCOUNT
-            # -------------------------------------------------
+            # =================================================
 
             if message_type == "register":
 
                 await handle_register(
                     websocket,
-                    data.get("username", ""),
-                    data.get("email", ""),
-                    data.get("password", ""),
+                    data.get(
+                        "username",
+                        ""
+                    ),
+                    data.get(
+                        "email",
+                        ""
+                    ),
+                    data.get(
+                        "password",
+                        ""
+                    ),
                     data.get(
                         "password_confirmation",
                         ""
@@ -1543,19 +1925,29 @@ async def client_handler(
 
                 await handle_login(
                     websocket,
-                    data.get("login", ""),
-                    data.get("password", "")
+                    data.get(
+                        "login",
+                        ""
+                    ),
+                    data.get(
+                        "password",
+                        ""
+                    )
                 )
 
-            # -------------------------------------------------
-            # GOMOKU
-            # -------------------------------------------------
+            # =================================================
+            # CREATE ROOM
+            # =================================================
 
             elif message_type == "create":
 
                 await handle_create(
                     websocket
                 )
+
+            # =================================================
+            # JOIN ROOM
+            # =================================================
 
             elif message_type == "join":
 
@@ -1566,6 +1958,54 @@ async def client_handler(
                         ""
                     )
                 )
+
+            # =================================================
+            # WATCH / SPECTATOR
+            # =================================================
+
+            elif message_type == "watch":
+
+                await handle_watch(
+                    websocket,
+                    data.get(
+                        "room",
+                        ""
+                    )
+                )
+
+            elif message_type == "spectate":
+
+                await handle_watch(
+                    websocket,
+                    data.get(
+                        "room",
+                        ""
+                    )
+                )
+
+            elif message_type == "stop_watching":
+
+                await handle_stop_watching(
+                    websocket,
+                    data.get(
+                        "room",
+                        ""
+                    )
+                )
+
+            elif message_type == "leave_spectator":
+
+                await handle_stop_watching(
+                    websocket,
+                    data.get(
+                        "room",
+                        ""
+                    )
+                )
+
+            # =================================================
+            # MATCHMAKING
+            # =================================================
 
             elif message_type == "find_match":
 
@@ -1578,6 +2018,10 @@ async def client_handler(
                 await handle_cancel_match(
                     websocket
                 )
+
+            # =================================================
+            # RECONNECT
+            # =================================================
 
             elif message_type == "reconnect":
 
@@ -1596,6 +2040,10 @@ async def client_handler(
                     )
                 )
 
+            # =================================================
+            # MOVE
+            # =================================================
+
             elif message_type == "move":
 
                 await handle_move(
@@ -1612,6 +2060,10 @@ async def client_handler(
                     )
                 )
 
+            # =================================================
+            # REMATCH REQUEST
+            # =================================================
+
             elif message_type == "rematch_request":
 
                 await handle_rematch_request(
@@ -1621,6 +2073,10 @@ async def client_handler(
                         ""
                     )
                 )
+
+            # =================================================
+            # REMATCH RESPONSE
+            # =================================================
 
             elif message_type == "rematch_response":
 
@@ -1638,6 +2094,10 @@ async def client_handler(
                     )
                 )
 
+            # =================================================
+            # RESET
+            # =================================================
+
             elif message_type == "reset":
 
                 await handle_reset(
@@ -1647,6 +2107,10 @@ async def client_handler(
                         ""
                     )
                 )
+
+            # =================================================
+            # UNKNOWN
+            # =================================================
 
             else:
 
