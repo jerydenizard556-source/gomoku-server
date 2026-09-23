@@ -1,258 +1,718 @@
-import asyncio,json,secrets,string,time,os,hashlib,hmac,re
-import websockets, psycopg2
-HOST='0.0.0.0'; PORT=10000; BOARD_SIZE=20; START_TIME=600
-DATABASE_URL=os.environ.get('DATABASE_URL'); db=None
-if DATABASE_URL:
-    try:
-        db=psycopg2.connect(DATABASE_URL); db.autocommit=True
-        c=db.cursor(); c.execute('''CREATE TABLE IF NOT EXISTS players (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS points INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS wins INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS losses INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS draws INTEGER NOT NULL DEFAULT 0"); c.close(); print('PostgreSQL database connected.')
-    except Exception as e: print('Database connection error:',repr(e)); db=None
+import asyncio
+import json
+import os
+import secrets
+import string
+import time
+import hashlib
+from datetime import datetime
+from typing import Optional
 
-def hash_password(p):
-    s=secrets.token_bytes(16); h=hashlib.pbkdf2_hmac('sha256',p.encode(),s,200000); return f'pbkdf2_sha256$200000${s.hex()}${h.hex()}'
-def verify_password(p,x):
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import websockets
+
+HOST = "0.0.0.0"
+PORT = int(os.getenv("PORT", "10000"))
+BOARD_SIZE = 20
+START_TIME = 10 * 60
+TICK = 1
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+rooms = {}
+waiting = None
+clients = set()
+players_online = {}
+connections = {}
+
+
+def db():
+    if not DATABASE_URL:
+        return None
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
+
+
+def init_db():
+    con = db()
+    if not con:
+        return
     try:
-        a,it,s,h=x.split('$');
-        if a!='pbkdf2_sha256': return False
-        z=hashlib.pbkdf2_hmac('sha256',p.encode(),bytes.fromhex(s),int(it)); return hmac.compare_digest(z,bytes.fromhex(h))
-    except: return False
-def valid_username(x): return bool(x) and 3<=len(x)<=50 and re.fullmatch(r'[A-Za-z0-9_]+',x) is not None
-def valid_email(x): return bool(x) and len(x)<=255 and re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',x) is not None
-connected_accounts={}
-def set_account(ws,pid,u,e,t): connected_accounts[ws]={'player_id':pid,'username':u,'email':e,'account_token':t}
-def username(ws,fallback): return connected_accounts.get(ws,{}).get('username',fallback)
-async def send(ws,d):
-    try: await ws.send(json.dumps(d))
-    except: pass
-async def register(ws,u,e,p,pc):
-    if db is None: return await send(ws,{'type':'register_result','success':False,'message':'Database pa disponib.'})
-    u=str(u or '').strip(); e=str(e or '').strip().lower(); p=str(p or ''); pc=str(pc or '')
-    if not valid_username(u): return await send(ws,{'type':'register_result','success':False,'message':'Pseudo a dwe genyen 3-50 karaktè epi sèlman lèt, chif oswa _.'})
-    if not valid_email(e): return await send(ws,{'type':'register_result','success':False,'message':'Email la pa valid.'})
-    if len(p)<8: return await send(ws,{'type':'register_result','success':False,'message':'Password la dwe genyen omwen 8 karaktè.'})
-    if p!=pc: return await send(ws,{'type':'register_result','success':False,'message':'Password yo pa menm.'})
+        with con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS players (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(50) UNIQUE NOT NULL,
+                        email VARCHAR(255) UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS player_stats (
+                        player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+                        points INTEGER NOT NULL DEFAULT 0,
+                        wins INTEGER NOT NULL DEFAULT 0,
+                        losses INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+    finally:
+        con.close()
+
+
+def clean_text(v, n=255):
+    return str(v or "").strip()[:n]
+
+
+def valid_email(v):
+    return "@" in v and "." in v.rsplit("@", 1)[-1]
+
+
+def hash_password(password, salt=None):
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return "pbkdf2_sha256$200000$" + salt.hex() + "$" + digest.hex()
+
+
+def verify_password(password, stored):
     try:
-        c=db.cursor(); c.execute('SELECT id FROM players WHERE LOWER(username)=LOWER(%s)',(u,));
-        if c.fetchone(): c.close(); return await send(ws,{'type':'register_result','success':False,'message':'Pseudo sa deja itilize.'})
-        c.execute('SELECT id FROM players WHERE LOWER(email)=LOWER(%s)',(e,));
-        if c.fetchone(): c.close(); return await send(ws,{'type':'register_result','success':False,'message':'Email sa deja itilize.'})
-        c.execute('INSERT INTO players(username,email,password_hash) VALUES(%s,%s,%s) RETURNING id',(u,e,hash_password(p))); pid=c.fetchone()[0]; c.close(); t=secrets.token_urlsafe(32); set_account(ws,pid,u,e,t)
-        await send(ws,{'type':'register_result','success':True,'message':'Kont lan kreye avèk siksè.','player_id':pid,'username':u,'email':e,'account_token':t,'points':0,'wins':0,'losses':0,'draws':0,'level':1})
-    except Exception as ex: print('Register error:',repr(ex)); await send(ws,{'type':'register_result','success':False,'message':'Erè pandan kreyasyon kont lan.'})
-async def login(ws,l,p):
-    if db is None: return await send(ws,{'type':'login_result','success':False,'message':'Database pa disponib.'})
-    l=str(l or '').strip(); p=str(p or '')
-    if not l or not p: return await send(ws,{'type':'login_result','success':False,'message':'Tanpri ranpli tout chan yo.'})
-    try:
-        c=db.cursor(); c.execute('SELECT id,username,email,password_hash,points,wins,losses,draws FROM players WHERE LOWER(username)=LOWER(%s) OR LOWER(email)=LOWER(%s) LIMIT 1',(l,l)); row=c.fetchone(); c.close()
-        if not row or not verify_password(p,row[3]): return await send(ws,{'type':'login_result','success':False,'message':'Pseudo/email oswa password la pa kòrèk.'})
-        t=secrets.token_urlsafe(32); set_account(ws,row[0],row[1],row[2],t); await send(ws,{'type':'login_result','success':True,'message':'Login reyisi.','player_id':row[0],'username':row[1],'email':row[2],'account_token':t,'points':row[4] or 0,'wins':row[5] or 0,'losses':row[6] or 0,'draws':row[7] or 0,'level':1+int((row[4] or 0)//30)})
-    except Exception as ex: print('Login error:',repr(ex)); await send(ws,{'type':'login_result','success':False,'message':'Erè pandan login.'})
-rooms={}; queue=[]
-def code():
+        algo, iters, salt_hex, digest_hex = stored.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), int(iters))
+        return secrets.compare_digest(digest.hex(), digest_hex)
+    except Exception:
+        return False
+
+
+def make_token():
+    return secrets.token_urlsafe(32)
+
+
+def make_room_code():
+    chars = string.ascii_uppercase + string.digits
     while True:
-        x=''.join(secrets.choice(string.ascii_uppercase+string.digits) for _ in range(6))
-        if x not in rooms:return x
-def board(): return [[0]*BOARD_SIZE for _ in range(BOARD_SIZE)]
-def room_base(): return {'board':board(),'players':{},'spectators':set(),'turn':1,'starter':1,'black_time':START_TIME,'red_time':START_TIME,'last_timer_update':time.monotonic(),'game_over':False,'winner':0,'draw':False,'abandonment':False,'black_score':0,'red_score':0,'game_number':1,'last_move':None,'last_move_was_win':False,'winning_line':None,'rematch_request':None,'chat':[],'stats_recorded':False}
-def new_room():
-    c=code(); rooms[c]=room_base(); return c
-def session(): return secrets.token_urlsafe(32)
-def pstate(r,n):
-    p=r['players'].get(n,{})
-    return {'connected':p.get('connected',False),'username':p.get('username',f'Joueur {n}'),'name':p.get('username',f'Joueur {n}'),'player_id':p.get('player_id')}
-def find(r,ws):
-    for n,p in r['players'].items():
-        if p.get('socket') is ws:return n
+        code = "".join(secrets.choice(chars) for _ in range(6))
+        if code not in rooms:
+            return code
+
+
+def empty_board():
+    return {}
+
+
+def room_base():
+    return {
+        "players": {},
+        "spectators": set(),
+        "board": empty_board(),
+        "turn": 1,
+        "starter": 1,
+        "game_number": 1,
+        "scores": {1: 0, 2: 0},
+        "times": {1: START_TIME, 2: START_TIME},
+        "last_tick": time.monotonic(),
+        "active": False,
+        "winner": None,
+        "draw": False,
+        "winning_line": None,
+        "last_move": None,
+        "rematch_request": None,
+        "undo_request": None,
+        "closed": False,
+    }
+
+
+def check_five(board, row, col, player):
+    dirs = [(1, 0), (0, 1), (1, 1), (1, -1)]
+    for dr, dc in dirs:
+        cells = [(row, col)]
+        for sign in (1, -1):
+            r, c = row + dr * sign, col + dc * sign
+            while 0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE and board.get(f"{r},{c}") == player:
+                cells.append((r, c))
+                r += dr * sign
+                c += dc * sign
+        if len(cells) >= 5:
+            cells.sort()
+            # Return exactly five around the newly played point when possible.
+            if len(cells) == 5:
+                return [{"row": r, "col": c} for r, c in cells]
+            idx = cells.index((row, col))
+            start = max(0, min(idx - 4, len(cells) - 5))
+            chosen = cells[start:start + 5]
+            return [{"row": r, "col": c} for r, c in chosen]
     return None
-def remove_spec(ws):
-    for r in rooms.values(): r['spectators'].discard(ws)
-def level_for_points(points): return 1 + max(0,int(points or 0)//30)
-def get_stats(pid):
-    if db is None or not pid: return {'points':0,'wins':0,'losses':0,'draws':0,'level':1}
-    try:
-        c=db.cursor(); c.execute('SELECT points,wins,losses,draws FROM players WHERE id=%s',(pid,)); row=c.fetchone(); c.close()
-        if not row: return {'points':0,'wins':0,'losses':0,'draws':0,'level':1}
-        return {'points':row[0] or 0,'wins':row[1] or 0,'losses':row[2] or 0,'draws':row[3] or 0,'level':level_for_points(row[0] or 0)}
-    except Exception as e: print('Stats read error:',repr(e)); return {'points':0,'wins':0,'losses':0,'draws':0,'level':1}
-async def record_result(r):
-    if r.get('stats_recorded') or not r.get('game_over'): return
-    r['stats_recorded']=True
-    for n,p in r.get('players',{}).items():
-        pid=p.get('player_id')
-        if not pid or db is None: continue
+
+
+def player_name(room, n):
+    p = room["players"].get(n)
+    return p.get("username") if p else f"Joueur {n}"
+
+
+def public_state(room):
+    return {
+        "board": room["board"],
+        "turn": room["turn"],
+        "starter": room["starter"],
+        "game_number": room["game_number"],
+        "black_score": room["scores"][1],
+        "red_score": room["scores"][2],
+        "black_time": max(0, int(room["times"][1])),
+        "red_time": max(0, int(room["times"][2])),
+        "active": room["active"],
+        "winner": room["winner"],
+        "draw": room["draw"],
+        "winning_line": room["winning_line"],
+        "last_move": room["last_move"],
+        "rematch_request": room["rematch_request"],
+        "undo_request": room["undo_request"],
+        "black_name": player_name(room, 1),
+        "red_name": player_name(room, 2),
+        "spectator_count": len(room["spectators"]),
+    }
+
+
+async def send(ws, data):
+    if ws and ws in clients:
         try:
-            c=db.cursor()
-            if r.get('draw'):
-                c.execute('UPDATE players SET points=points+1, draws=draws+1 WHERE id=%s',(pid,))
-            elif int(n)==int(r.get('winner',0)):
-                c.execute('UPDATE players SET points=points+3, wins=wins+1 WHERE id=%s',(pid,))
-            else:
-                c.execute('UPDATE players SET losses=losses+1 WHERE id=%s',(pid,))
-            c.close()
-        except Exception as e: print('Stats update error:',repr(e))
-def winline(b,rr,cc,p):
-    for dr,dc in ((0,1),(1,0),(1,1),(1,-1)):
-        line=[(rr,cc)]; r,c=rr-dr,cc-dc
-        while 0<=r<20 and 0<=c<20 and b[r][c]==p: line.insert(0,(r,c)); r-=dr;c-=dc
-        r,c=rr+dr,cc+dc
-        while 0<=r<20 and 0<=c<20 and b[r][c]==p: line.append((r,c));r+=dr;c+=dc
-        if len(line)>=5:return line
-    return None
-def update_timer(r):
-    if r['game_over'] or r['rematch_request'] is not None: r['last_timer_update']=time.monotonic(); return
-    now=time.monotonic(); d=max(0,now-r['last_timer_update']);r['last_timer_update']=now
-    k='black_time' if r['turn']==1 else 'red_time';r[k]=max(0,r[k]-d)
-    if r[k]<=0:
-        r['game_over']=True;r['winner']=2 if r['turn']==1 else 1;r['draw']=False;r['abandonment']=False
-        r['black_score']+=r['winner']==1;r['red_score']+=r['winner']==2
-        asyncio.create_task(record_result(r))
-async def state(r):
-    update_timer(r); return {'type':'state','board':r['board'],'turn':r['turn'],'starter':r['starter'],'black_time':r['black_time'],'red_time':r['red_time'],'game_over':r['game_over'],'winner':r['winner'],'draw':r['draw'],'abandonment':r['abandonment'],'black_score':r['black_score'],'red_score':r['red_score'],'game_number':r['game_number'],'last_move':r['last_move'],'last_move_was_win':r['last_move_was_win'],'winning_line':r['winning_line'],'rematch_request':r['rematch_request'],'players':{'1':pstate(r,1),'2':pstate(r,2)},'spectator_count':len(r['spectators']),'spectators_count':len(r['spectators']),'waiting':not (r['players'].get(1,{}).get('connected') and r['players'].get(2,{}).get('connected')),'stats':{'1':get_stats(r['players'].get(1,{}).get('player_id')),'2':get_stats(r['players'].get(2,{}).get('player_id'))},'chat':r.get('chat',[]) }
-async def broadcast(r):
-    s=await state(r)
-    for p in r['players'].values():
-        if p.get('socket'): await send(p['socket'],s)
-    for ws in list(r['spectators']): await send(ws,s)
-async def create(ws):
-    c=new_room();r=rooms[c];t=session();r['players'][1]={'socket':ws,'connected':True,'session_token':t,'username':username(ws,'Joueur 1'),'player_id':connected_accounts.get(ws,{}).get('player_id')};await send(ws,{'type':'created','room':c,'player':1,'session_token':t,'username':r['players'][1]['username']});await broadcast(r)
-async def join(ws,c):
-    c=str(c or '').upper().strip();
-    if c not in rooms:return await send(ws,{'type':'error','message':'Room introuvable.'})
-    r=rooms[c]
-    if 2 in r['players']:
-        return await send(ws,{'type':'error','message':'Room sa deja gen 2 jwè. Chwazi Spectateur.'})
-    t=session();r['players'][2]={'socket':ws,'connected':True,'session_token':t,'username':username(ws,'Joueur 2'),'player_id':connected_accounts.get(ws,{}).get('player_id')};await send(ws,{'type':'joined','room':c,'player':2,'session_token':t,'username':r['players'][2]['username']});await broadcast(r)
+            await ws.send(json.dumps(data, ensure_ascii=False))
+        except Exception:
+            pass
+
+
+async def broadcast(room, data, include_spectators=True):
+    targets = list(room["players"].values())
+    if include_spectators:
+        targets += list(room["spectators"])
+    await asyncio.gather(*(send(w, data) for w in targets), return_exceptions=True)
+
+
+async def state(room):
+    await broadcast(room, {"type": "state", **public_state(room)})
+
+
+def add_stats(player_id, win=False, loss=False, points=0):
+    con = db()
+    if not con:
+        return
+    try:
+        with con:
+            with con.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO player_stats(player_id, points, wins, losses)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT(player_id) DO UPDATE SET
+                        points = player_stats.points + EXCLUDED.points,
+                        wins = player_stats.wins + EXCLUDED.wins,
+                        losses = player_stats.losses + EXCLUDED.losses
+                """, (player_id, points, 1 if win else 0, 1 if loss else 0))
+    finally:
+        con.close()
+
+
+def get_player(login):
+    con = db()
+    if not con:
+        return None
+    try:
+        with con.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT p.id, p.username, p.email, p.password_hash,
+                       COALESCE(s.points,0) points,
+                       COALESCE(s.wins,0) wins,
+                       COALESCE(s.losses,0) losses
+                FROM players p
+                LEFT JOIN player_stats s ON s.player_id=p.id
+                WHERE LOWER(p.username)=LOWER(%s) OR LOWER(p.email)=LOWER(%s)
+                LIMIT 1
+            """, (login, login))
+            return cur.fetchone()
+    finally:
+        con.close()
+
+
+def create_player(username, email, password):
+    con = db()
+    if not con:
+        return None, "Base de données indisponible."
+    try:
+        with con:
+            with con.cursor() as cur:
+                cur.execute("SELECT 1 FROM players WHERE LOWER(username)=LOWER(%s)", (username,))
+                if cur.fetchone():
+                    return None, "Ce nom d'utilisateur existe déjà."
+                cur.execute("SELECT 1 FROM players WHERE LOWER(email)=LOWER(%s)", (email,))
+                if cur.fetchone():
+                    return None, "Cet email est déjà utilisé."
+                cur.execute("""
+                    INSERT INTO players(username,email,password_hash)
+                    VALUES(%s,%s,%s) RETURNING id
+                """, (username, email, hash_password(password)))
+                pid = cur.fetchone()[0]
+                cur.execute("INSERT INTO player_stats(player_id) VALUES(%s) ON CONFLICT DO NOTHING", (pid,))
+                return pid, None
+    except Exception:
+        return None, "Impossible de créer le compte."
+    finally:
+        con.close()
+
+
+async def register(ws, c):
+    username = clean_text(c.get("username"), 50)
+    email = clean_text(c.get("email"), 255).lower()
+    password = str(c.get("password") or "")
+    confirmation = str(c.get("password_confirmation") or "")
+    if len(username) < 3:
+        await send(ws, {"type": "register_result", "success": False, "message": "Nom d'utilisateur trop court."})
+        return
+    if not valid_email(email):
+        await send(ws, {"type": "register_result", "success": False, "message": "Email invalide."})
+        return
+    if len(password) < 6:
+        await send(ws, {"type": "register_result", "success": False, "message": "Mot de passe trop court."})
+        return
+    if password != confirmation:
+        await send(ws, {"type": "register_result", "success": False, "message": "Les mots de passe ne correspondent pas."})
+        return
+    pid, err = create_player(username, email, password)
+    if err:
+        await send(ws, {"type": "register_result", "success": False, "message": err})
+        return
+    token = make_token()
+    connections[ws] = {"player_id": pid, "username": username, "email": email, "token": token}
+    players_online[pid] = ws
+    await send(ws, {"type": "register_result", "success": True, "message": "Compte créé avec succès.", "player_id": pid, "username": username, "email": email, "account_token": token})
+    await send_online_list()
+
+
+async def login(ws, c):
+    login_value = clean_text(c.get("login"), 255)
+    password = str(c.get("password") or "")
+    p = get_player(login_value)
+    if not p or not verify_password(password, p["password_hash"]):
+        await send(ws, {"type": "login_result", "success": False, "message": "Identifiants incorrects."})
+        return
+    token = make_token()
+    connections[ws] = {"player_id": p["id"], "username": p["username"], "email": p["email"], "token": token}
+    players_online[p["id"]] = ws
+    await send(ws, {"type": "login_result", "success": True, "message": "Connexion réussie.", "player_id": p["id"], "username": p["username"], "email": p["email"], "account_token": token, "points": p["points"], "wins": p["wins"], "losses": p["losses"]})
+    await send_online_list()
+
+
+async def send_online_list():
+    arr = []
+    for pid, ws in list(players_online.items()):
+        info = connections.get(ws)
+        if info:
+            arr.append({"player_id": pid, "username": info["username"]})
+    msg = {"type": "online_players", "players": arr}
+    await asyncio.gather(*(send(ws, msg) for ws in list(clients)), return_exceptions=True)
+
+
+async def require_account(ws):
+    info = connections.get(ws)
+    if not info or not info.get("player_id"):
+        await send(ws, {"type": "error", "message": "Connectez-vous à votre compte."})
+        return False
+    return True
+
+
+async def create_room(ws):
+    if not await require_account(ws): return
+    code = make_room_code()
+    r = room_base()
+    r["players"][1] = ws
+    rooms[code] = r
+    info = connections[ws]
+    info["room"] = code
+    info["player"] = 1
+    await send(ws, {"type": "created", "room": code, "player": 1, "session_token": info["token"], "username": info["username"]})
+    await send(ws, {"type": "waiting_for_player"})
+    await state(r)
+
+
+async def join_room(ws, code):
+    if not await require_account(ws): return
+    code = clean_text(code, 6).upper()
+    r = rooms.get(code)
+    if not r or r.get("closed"):
+        await send(ws, {"type": "error", "message": "Salle introuvable."})
+        return
+    if 2 in r["players"]:
+        await send(ws, {"type": "error", "message": "Cette salle est déjà pleine."})
+        return
+    r["players"][2] = ws
+    info = connections[ws]
+    info["room"] = code
+    info["player"] = 2
+    r["active"] = True
+    r["last_tick"] = time.monotonic()
+    await send(ws, {"type": "joined", "room": code, "player": 2, "session_token": info["token"], "username": info["username"]})
+    await broadcast(r, {"type": "match_found", "room": code, "message": "🎮 Adversaire trouvé ! Le match va commencer."})
+    await state(r)
+
+
 async def find_match(ws):
-    remove_spec(ws);queue[:]=[x for x in queue if x is not ws]
-    if queue:
-        a=queue.pop(0);c=code();r=room_base();rooms[c]=r
-        n1=username(a,'Joueur 1');n2=username(ws,'Joueur 2');t1=session();t2=session();r['players']={1:{'socket':a,'connected':True,'session_token':t1,'username':n1,'player_id':connected_accounts.get(a,{}).get('player_id')},2:{'socket':ws,'connected':True,'session_token':t2,'username':n2,'player_id':connected_accounts.get(ws,{}).get('player_id')}}
-        await send(a,{'type':'match_found','room':c,'player':1,'session_token':t1,'username':n1,'message':'🎮 Adversaire trouvé ! Le match va commencer.'});await send(ws,{'type':'match_found','room':c,'player':2,'session_token':t2,'username':n2,'message':'🎮 Adversaire trouvé ! Le match va commencer.'});await broadcast(r)
-    else: queue.append(ws);await send(ws,{'type':'searching','message':'Ap chèche yon adversè...'})
-async def cancel(ws):
-    queue[:]=[x for x in queue if x is not ws];await send(ws,{'type':'match_cancelled'})
-async def watch(ws,c):
-    c=str(c or '').upper().strip()
-    if c not in rooms:return await send(ws,{'type':'watch_error','success':False,'message':'Match sa pa egziste.'})
-    remove_spec(ws);r=rooms[c];r['spectators'].add(ws);await send(ws,{'type':'watching','room':c,'spectator':True});await broadcast(r)
-async def live(ws):
-    out=[]
-    for c,r in rooms.items():
-        if len(r['players'])==2 and not r['game_over'] and all(p.get('connected') for p in r['players'].values()):
-            out.append({'room':c,'player1':pstate(r,1)['username'],'player2':pstate(r,2)['username'],'spectator_count':len(r['spectators']),'game_over':r['game_over']})
-    await send(ws,{'type':'live_matches','matches':out})
-async def reconnect(ws,c,n,t):
-    c=str(c or '').upper().strip()
-    try:n=int(n)
-    except:return
-    if c not in rooms or n not in rooms[c]['players'] or rooms[c]['players'][n].get('session_token')!=t:return await send(ws,{'type':'error','message':'Session token invalid.'})
-    r=rooms[c];remove_spec(ws);r['players'][n]['socket']=ws;r['players'][n]['connected']=True;await send(ws,{'type':'reconnected','room':c,'player':n,'session_token':t,'username':r['players'][n]['username']});await broadcast(r)
-async def move(ws,c,rr,cc):
-    c=str(c or '').upper().strip()
-    if c not in rooms:return
-    r=rooms[c];n=find(r,ws)
-    if n is None:return await send(ws,{'type':'error','message':'Spectatè yo pa kapab jwe.'})
-    if r['game_over'] or r['rematch_request'] is not None or n!=r['turn']:return
-    try:rr=int(rr);cc=int(cc)
-    except:return
-    if not(0<=rr<20 and 0<=cc<20) or r['board'][rr][cc]:return
-    update_timer(r)
-    if r['game_over']:return await broadcast(r)
-    r['board'][rr][cc]=n;r['last_move']={'row':rr,'col':cc,'player':n};r['last_move_was_win']=False;r['winning_line']=None
-    wl=winline(r['board'],rr,cc,n)
-    if wl:r['game_over']=True;r['winner']=n;r['winning_line']=[{'row':a,'col':b} for a,b in wl];r['last_move_was_win']=True;r['black_score']+=n==1;r['red_score']+=n==2
-    elif all(all(x for x in row) for row in r['board']):r['game_over']=True;r['draw']=True;r['winner']=0
-    else:r['turn']=2 if n==1 else 1
-    if r['game_over']: await record_result(r)
-    await broadcast(r)
-async def rematch_req(ws,c):
-    c=str(c or '').upper().strip();
-    if c not in rooms:return
-    r=rooms[c];n=find(r,ws)
-    if n is None or not r['game_over'] or r['rematch_request'] is not None:return
-    # requester must be the loser, unless draw (either player may request)
-    if not r['draw'] and r['winner']==n:return
-    r['rematch_request']=n;r['last_timer_update']=time.monotonic();await broadcast(r)
-async def rematch_resp(ws,c,accepted):
-    c=str(c or '').upper().strip();
-    if c not in rooms:return
-    r=rooms[c];n=find(r,ws);q=r['rematch_request']
-    if n is None or q is None or n==q:return
+    global waiting
+    if not await require_account(ws): return
+    if waiting and waiting in clients and waiting is not ws:
+        other = waiting
+        waiting = None
+        code = make_room_code()
+        r = room_base()
+        r["players"][1] = other
+        r["players"][2] = ws
+        r["active"] = True
+        r["last_tick"] = time.monotonic()
+        rooms[code] = r
+        for sock, num in ((other, 1), (ws, 2)):
+            info = connections.get(sock, {})
+            info["room"] = code
+            info["player"] = num
+            await send(sock, {"type": "match_found", "room": code, "player": num, "session_token": info.get("token"), "message": "🎮 Adversaire trouvé ! Le match va commencer."})
+        await state(r)
+    else:
+        waiting = ws
+        await send(ws, {"type": "searching"})
+
+
+async def cancel_match(ws):
+    global waiting
+    if waiting is ws:
+        waiting = None
+    await send(ws, {"type": "search_cancelled"})
+
+
+async def move(ws, c):
+    info = connections.get(ws, {})
+    code = clean_text(c.get("room"), 6).upper()
+    r = rooms.get(code)
+    if not r or info.get("room") != code or info.get("player") not in (1, 2): return
+    if not r["active"] or r["winner"] or r["draw"]: return
+    if r["undo_request"] is not None: return
+    p = info["player"]
+    if r["turn"] != p: return
+    try:
+        row, col = int(c.get("row")), int(c.get("col"))
+    except Exception:
+        return
+    if not (0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE): return
+    key = f"{row},{col}"
+    if key in r["board"]: return
+    r["board"][key] = p
+    r["last_move"] = {"row": row, "col": col, "player": p}
+    win_line = check_five(r["board"], row, col, p)
+    if win_line:
+        r["winner"] = p
+        r["winning_line"] = win_line
+        r["active"] = False
+        r["scores"][p] += 1
+        pid_win = connections.get(r["players"][p], {}).get("player_id")
+        pid_loss = connections.get(r["players"][3-p], {}).get("player_id")
+        if pid_win: add_stats(pid_win, win=True, points=10)
+        if pid_loss: add_stats(pid_loss, loss=True)
+    elif len(r["board"]) >= BOARD_SIZE * BOARD_SIZE:
+        r["draw"] = True
+        r["active"] = False
+    else:
+        r["turn"] = 3 - p
+    r["last_tick"] = time.monotonic()
+    await state(r)
+
+
+async def undo_request(ws, c):
+    info = connections.get(ws, {})
+    r = rooms.get(clean_text(c.get("room"), 6).upper())
+    if not r or not r["active"] or r["undo_request"] is not None: return
+    p = info.get("player")
+    if p not in (1, 2) or r["last_move"] is None or r["last_move"]["player"] != p: return
+    r["undo_request"] = p
+    await state(r)
+    opponent = r["players"].get(3-p)
+    await send(opponent, {"type": "undo_request", "message": "L'adversaire demande de rejouer son dernier pion."})
+
+
+async def undo_response(ws, c, accepted):
+    info = connections.get(ws, {})
+    r = rooms.get(clean_text(c.get("room"), 6).upper())
+    if not r or r["undo_request"] is None: return
+    requester = r["undo_request"]
+    if info.get("player") != 3 - requester: return
     if accepted:
-        r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=board();r['black_time']=START_TIME;r['red_time']=START_TIME;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None
-    r['rematch_request']=None;r['stats_recorded']=False;r['chat']=[];r['last_timer_update']=time.monotonic();await broadcast(r)
-async def chat(ws,c,message):
-    c=str(c or '').upper().strip()
-    if c not in rooms: return
-    r=rooms[c]; n=find(r,ws)
-    is_spec=ws in r['spectators']
-    if n is None and not is_spec: return
-    msg=str(message or '').strip()[:300]
-    if not msg: return
-    sender=username(ws,'Spectateur' if is_spec else f'Joueur {n}')
-    item={'sender':sender,'role':'spectator' if is_spec else 'player','text':msg,'time':int(time.time())}
-    r.setdefault('chat',[]).append(item); r['chat']=r['chat'][-80:]
-    await broadcast(r)
-async def rooms_list(ws):
-    out=[]
-    for c,r in rooms.items():
-        p1=pstate(r,1); p2=pstate(r,2)
-        connected=sum(1 for p in r['players'].values() if p.get('connected'))
-        if connected>0:
-            out.append({'room':c,'player1':p1['username'],'player2':p2['username'] if 2 in r['players'] else None,'players':connected,'spectator_count':len(r['spectators']),'game_over':r['game_over']})
-    await send(ws,{'type':'rooms_list','rooms':out})
-async def reset(ws,c):
-    c=str(c or '').upper().strip();
-    if c not in rooms:return
-    r=rooms[c];n=find(r,ws)
-    if n is None or not r['game_over']:return
-    r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=board();r['black_time']=START_TIME;r['red_time']=START_TIME;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None;r['rematch_request']=None;r['stats_recorded']=False;r['chat']=[];await broadcast(r)
+        lm = r["last_move"]
+        if lm:
+            r["board"].pop(f"{lm['row']},{lm['col']}", None)
+            r["turn"] = requester
+            r["last_move"] = None
+            r["winner"] = None
+            r["draw"] = False
+            r["winning_line"] = None
+    r["undo_request"] = None
+    r["last_tick"] = time.monotonic()
+    await state(r)
+
+
+async def rematch_request(ws, c):
+    info = connections.get(ws, {})
+    r = rooms.get(clean_text(c.get("room"), 6).upper())
+    if not r or r["active"] or not (r["winner"] or r["draw"]): return
+    p = info.get("player")
+    if p not in (1, 2): return
+    # Only the losing player can request a rematch after a win; on draw either may request.
+    if r["winner"] and p == r["winner"]: return
+    if r["rematch_request"] is not None: return
+    r["rematch_request"] = p
+    await state(r)
+    await send(r["players"].get(3-p), {"type": "rematch_request", "message": "🔄 L'adversaire demande une revanche."})
+
+
+async def rematch_response(ws, c, accepted):
+    info = connections.get(ws, {})
+    r = rooms.get(clean_text(c.get("room"), 6).upper())
+    if not r or r["rematch_request"] is None: return
+    requester = r["rematch_request"]
+    if info.get("player") != 3-requester: return
+    if not accepted:
+        r["rematch_request"] = None
+        await state(r)
+        await send(r["players"].get(requester), {"type": "rematch_refused", "message": "❌ Revanche refusée."})
+        return
+    r["game_number"] += 1
+    r["starter"] = 3 - r["starter"]
+    r["turn"] = r["starter"]
+    r["board"] = {}
+    r["times"] = {1: START_TIME, 2: START_TIME}
+    r["active"] = True
+    r["winner"] = None
+    r["draw"] = False
+    r["winning_line"] = None
+    r["last_move"] = None
+    r["rematch_request"] = None
+    r["undo_request"] = None
+    r["last_tick"] = time.monotonic()
+    await broadcast(r, {"type": "rematch_accepted", "message": "🔄 Nouvelle partie ! Le starter alterne."})
+    await state(r)
+
+
+async def reset_room(ws, c):
+    info = connections.get(ws, {})
+    r = rooms.get(clean_text(c.get("room"), 6).upper())
+    if not r: return
+    if info.get("player") not in (1,2): return
+    r["game_number"] += 1
+    r["starter"] = 3-r["starter"]
+    r["turn"] = r["starter"]
+    r["board"] = {}
+    r["times"] = {1: START_TIME, 2: START_TIME}
+    r["active"] = len(r["players"]) == 2
+    r["winner"] = None
+    r["draw"] = False
+    r["winning_line"] = None
+    r["last_move"] = None
+    r["rematch_request"] = None
+    r["undo_request"] = None
+    r["last_tick"] = time.monotonic()
+    await state(r)
+
+
+async def spectate_list(ws):
+    result = []
+    for code, r in rooms.items():
+        if r.get("closed") or len(r["players"]) < 2: continue
+        result.append({"room": code, "black_name": player_name(r,1), "red_name": player_name(r,2), "active": r["active"], "spectator_count": len(r["spectators"])})
+    await send(ws, {"type": "spectator_matches", "matches": result})
+
+
+async def spectate_join(ws, c):
+    code = clean_text(c.get("room"), 6).upper()
+    r = rooms.get(code)
+    if not r or len(r["players"]) < 2:
+        await send(ws, {"type": "error", "message": "Match introuvable."})
+        return
+    r["spectators"].add(ws)
+    connections.setdefault(ws, {})["spectating"] = code
+    await send(ws, {"type": "spectator_joined", "room": code, "message": "👀 Vous regardez le match."})
+    await send(ws, {"type": "state", **public_state(r), "spectator": True})
+    await broadcast(r, {"type": "spectator_count", "count": len(r["spectators"])})
+
+
+async def direct_invite(ws, c):
+    if not await require_account(ws): return
+    try: target_id = int(c.get("player_id"))
+    except Exception: return
+    target = players_online.get(target_id)
+    if not target or target not in clients:
+        await send(ws, {"type": "invite_result", "success": False, "message": "Ce joueur n'est plus en ligne."})
+        return
+    sender = connections[ws]
+    await send(target, {"type": "game_invitation", "from_player_id": sender["player_id"], "from_username": sender["username"]})
+    await send(ws, {"type": "invite_result", "success": True, "message": "Invitation envoyée."})
+
+
+async def direct_invite_response(ws, c, accepted):
+    if not await require_account(ws): return
+    try: sender_id = int(c.get("from_player_id"))
+    except Exception: return
+    sender = players_online.get(sender_id)
+    if not sender or sender not in clients:
+        await send(ws, {"type": "error", "message": "Le joueur n'est plus en ligne."})
+        return
+    if not accepted:
+        await send(sender, {"type": "game_invitation_response", "accepted": False, "message": "Invitation refusée."})
+        return
+    code = make_room_code()
+    r = room_base()
+    r["players"][1] = sender
+    r["players"][2] = ws
+    r["active"] = True
+    rooms[code] = r
+    for sock, num in ((sender,1),(ws,2)):
+        info = connections[sock]
+        info["room"] = code
+        info["player"] = num
+    await broadcast(r, {"type": "match_found", "room": code, "message": "🎮 Invitation acceptée ! Le match va commencer."})
+    await state(r)
+
+
+async def chat(ws, c):
+    info = connections.get(ws, {})
+    text_value = clean_text(c.get("message"), 500)
+    if not text_value: return
+    code = info.get("room")
+    r = rooms.get(code) if code else None
+    if not r: return
+    payload = {"type":"chat_message", "username": info.get("username","Joueur"), "message": text_value}
+    await broadcast(r, payload)
+
+
+async def abandon(ws, r):
+    if not r or not r["active"]: return
+    p = connections.get(ws, {}).get("player")
+    if p not in (1,2): return
+    winner = 3-p
+    r["winner"] = winner
+    r["active"] = False
+    r["draw"] = False
+    r["winning_line"] = None
+    r["rematch_request"] = None
+    r["undo_request"] = None
+    r["scores"][winner] += 1
+    pidw = connections.get(r["players"].get(winner), {}).get("player_id")
+    pidx = connections.get(ws, {}).get("player_id")
+    if pidw: add_stats(pidw, win=True, points=10)
+    if pidx: add_stats(pidx, loss=True)
+    await broadcast(r, {"type": "abandoned", "winner": winner, "message": f"🏆 Joueur {winner} gagne par abandon."})
+    await state(r)
+
+
 async def disconnect(ws):
-    queue[:]=[x for x in queue if x is not ws];connected_accounts.pop(ws,None);remove_spec(ws)
-    for c,r in list(rooms.items()):
-        n=find(r,ws)
-        if n is not None:
-            r['players'][n]['connected']=False;r['players'][n]['socket']=None
-            if not r['game_over'] and len(r['players'])==2 and any(p.get('connected') for p in r['players'].values()):
-                other=2 if n==1 else 1;r['game_over']=True;r['winner']=other;r['draw']=False;r['abandonment']=True;r['winning_line']=None;r['rematch_request']=None
-                r['black_score']+=other==1;r['red_score']+=other==2
-                await record_result(r)
-            await broadcast(r);return
+    global waiting
+    if waiting is ws:
+        waiting = None
+    clients.discard(ws)
+    info = connections.pop(ws, None)
+    if not info:
+        return
+    pid = info.get("player_id")
+    if pid and players_online.get(pid) is ws:
+        players_online.pop(pid, None)
+    code = info.get("room")
+    if code and code in rooms:
+        r = rooms[code]
+        r["spectators"].discard(ws)
+        if info.get("player") in (1,2):
+            await abandon(ws, r)
+            r["players"].pop(info["player"], None)
+            if not r["players"]:
+                r["closed"] = True
+                rooms.pop(code, None)
+            else:
+                await state(r)
+        elif info.get("spectating"):
+            await broadcast(r, {"type": "spectator_count", "count": len(r["spectators"])})
+    await send_online_list()
+
+
 async def timer_loop():
     while True:
-        await asyncio.sleep(1)
-        for r in list(rooms.values()):
-            if r['game_over'] or r['rematch_request'] is not None:continue
-            b,red=r['black_time'],r['red_time'];update_timer(r)
-            if b!=r['black_time'] or red!=r['red_time'] or r['game_over']:await broadcast(r)
+        now = time.monotonic()
+        for code, r in list(rooms.items()):
+            if not r.get("active") or r.get("undo_request") is not None:
+                r["last_tick"] = now
+                continue
+            elapsed = now - r.get("last_tick", now)
+            if elapsed < 1:
+                continue
+            r["last_tick"] = now
+            p = r["turn"]
+            r["times"][p] -= elapsed
+            if r["times"][p] <= 0:
+                r["times"][p] = 0
+                r["winner"] = 3-p
+                r["active"] = False
+                r["scores"][3-p] += 1
+                win_sock = r["players"].get(3-p)
+                loss_sock = r["players"].get(p)
+                if win_sock:
+                    pid = connections.get(win_sock, {}).get("player_id")
+                    if pid: add_stats(pid, win=True, points=10)
+                if loss_sock:
+                    pid = connections.get(loss_sock, {}).get("player_id")
+                    if pid: add_stats(pid, loss=True)
+                await broadcast(r, {"type":"timeout", "winner":3-p, "message":f"⏱️ Joueur {p} n'a plus de temps."})
+            await state(r)
+        await asyncio.sleep(TICK)
+
+
 async def handler(ws):
+    clients.add(ws)
+    connections.setdefault(ws, {})
     try:
         async for raw in ws:
-            try:d=json.loads(raw)
-            except: await send(ws,{'type':'error','message':'JSON invalid.'});continue
-            t=d.get('type')
-            if t=='register':await register(ws,d.get('username'),d.get('email'),d.get('password'),d.get('password_confirmation'))
-            elif t=='login':await login(ws,d.get('login'),d.get('password'))
-            elif t=='create':await create(ws)
-            elif t=='join':await join(ws,d.get('room',d.get('room_code',d.get('code'))))
-            elif t in ('watch','spectate'):await watch(ws,d.get('room',d.get('room_code',d.get('code'))))
-            elif t in ('stop_watching','leave_spectator'):remove_spec(ws);await send(ws,{'type':'watch_stopped'})
-            elif t=='live_matches':await live(ws)
-            elif t=='rooms_list':await rooms_list(ws)
-            elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
-            elif t=='find_match':await find_match(ws)
-            elif t=='cancel_match':await cancel(ws)
-            elif t=='reconnect':await reconnect(ws,d.get('room'),d.get('player'),d.get('session_token'))
-            elif t=='move':await move(ws,d.get('room'),d.get('row'),d.get('col'))
-            elif t=='rematch_request':await rematch_req(ws,d.get('room'))
-            elif t=='rematch_response':await rematch_resp(ws,d.get('room'),bool(d.get('accepted',d.get('accept',False))))
-            elif t=='reset':await reset(ws,d.get('room'))
-            else:await send(ws,{'type':'error','message':'Type de message inconnu.'})
-    except websockets.exceptions.ConnectionClosed:pass
-    except Exception as e:print('Erreur client:',repr(e))
-    finally:await disconnect(ws)
+            try:
+                c = json.loads(raw)
+            except Exception:
+                await send(ws, {"type":"error","message":"Message invalide."})
+                continue
+            typ = c.get("type")
+            if typ == "register": await register(ws,c)
+            elif typ == "login": await login(ws,c)
+            elif typ == "create": await create_room(ws)
+            elif typ == "join": await join_room(ws,c.get("room",""))
+            elif typ == "find_match": await find_match(ws)
+            elif typ == "cancel_match": await cancel_match(ws)
+            elif typ == "move": await move(ws,c)
+            elif typ == "undo_request": await undo_request(ws,c)
+            elif typ == "undo_response": await undo_response(ws,c,bool(c.get("accepted")))
+            elif typ == "rematch_request": await rematch_request(ws,c)
+            elif typ == "rematch_response": await rematch_response(ws,c,bool(c.get("accepted")))
+            elif typ == "reset": await reset_room(ws,c)
+            elif typ in ("spectator_list","list_spectator_matches","get_spectator_matches"): await spectate_list(ws)
+            elif typ in ("spectate","spectator_join","watch_match"): await spectate_join(ws,c)
+            elif typ in ("game_invitation","invite_player","play_request"): await direct_invite(ws,c)
+            elif typ in ("game_invitation_response","invite_response","play_request_response"): await direct_invite_response(ws,c,bool(c.get("accepted")))
+            elif typ == "chat": await chat(ws,c)
+            elif typ == "abandon":
+                info=connections.get(ws,{})
+                r=rooms.get(info.get("room"))
+                await abandon(ws,r)
+            elif typ == "ping": await send(ws,{"type":"pong"})
+            else: await send(ws,{"type":"error","message":"Commande inconnue."})
+    except websockets.ConnectionClosed:
+        pass
+    finally:
+        await disconnect(ws)
+
+
 async def main():
-    print(f'Serveur Gomoku lancé sur {HOST}:{PORT}');asyncio.create_task(timer_loop())
-    async with websockets.serve(handler,HOST,PORT,ping_interval=20,ping_timeout=20):print('WebSocket server prêt.');await asyncio.Future()
-if __name__=='__main__':asyncio.run(main())
+    init_db()
+    asyncio.create_task(timer_loop())
+    print(f"MR JERY MOPION server listening on {HOST}:{PORT}")
+    async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20, max_size=1024*1024):
+        await asyncio.Future()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
