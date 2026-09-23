@@ -4,7 +4,8 @@ import secrets
 import string
 import time
 import websockets
-
+import os
+import psycopg2
 HOST = "0.0.0.0"
 PORT = 10000
 
@@ -13,8 +14,27 @@ START_TIME = 10 * 60
 
 rooms = {}
 matchmaking_queue = []
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
+if DATABASE_URL:
+    db = psycopg2.connect(DATABASE_URL)
+    db.autocommit = True
 
+cursor = db.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS players (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(50) UNIQUE NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.close()
+
+def create_room_code():
 def create_room_code():
     while True:
         code = "".join(
