@@ -18,12 +18,9 @@ matchmaking_queue = []
 def create_room_code():
     while True:
         code = "".join(
-            secrets.choice(
-                string.ascii_uppercase + string.digits
-            )
+            secrets.choice(string.ascii_uppercase + string.digits)
             for _ in range(6)
         )
-
         if code not in rooms:
             return code
 
@@ -40,31 +37,21 @@ def new_room():
             [0 for _ in range(BOARD_SIZE)]
             for _ in range(BOARD_SIZE)
         ],
-
         "players": {},
-
         "turn": 1,
         "starter": 1,
-
         "black_time": START_TIME,
         "red_time": START_TIME,
-
         "last_timer_update": time.monotonic(),
-
         "game_over": False,
         "winner": 0,
         "draw": False,
-
         "black_score": 0,
         "red_score": 0,
-
         "game_number": 1,
-
         "last_move": None,
         "last_move_was_win": False,
-
         "winning_line": None,
-
         "rematch_request": None,
     }
 
@@ -121,10 +108,6 @@ def create_match_room(websocket1, websocket2):
         "rematch_request": None,
     }
 
-    print(
-        f"ROOM ONLINE CREATED: {code}"
-    )
-
     return code
 
 
@@ -137,7 +120,6 @@ def get_winning_line(board, row, col, player):
     ]
 
     for dr, dc in directions:
-
         line = [(row, col)]
 
         r = row - dr
@@ -148,11 +130,7 @@ def get_winning_line(board, row, col, player):
             and 0 <= c < BOARD_SIZE
             and board[r][c] == player
         ):
-            line.insert(
-                0,
-                (r, c)
-            )
-
+            line.insert(0, (r, c))
             r -= dr
             c -= dc
 
@@ -164,14 +142,10 @@ def get_winning_line(board, row, col, player):
             and 0 <= c < BOARD_SIZE
             and board[r][c] == player
         ):
-            line.append(
-                (r, c)
-            )
-
+            line.append((r, c))
             r += dr
             c += dc
 
-        # EXACTEMENT 5
         if len(line) == 5:
             return line
 
@@ -182,7 +156,6 @@ def board_is_full(board):
     for row in board:
         if 0 in row:
             return False
-
     return True
 
 
@@ -196,11 +169,7 @@ def update_timers(room):
         return
 
     now = time.monotonic()
-
-    elapsed = (
-        now -
-        room["last_timer_update"]
-    )
+    elapsed = now - room["last_timer_update"]
 
     if elapsed <= 0:
         return
@@ -208,41 +177,31 @@ def update_timers(room):
     room["last_timer_update"] = now
 
     if room["turn"] == 1:
-
         room["black_time"] = max(
             0,
             room["black_time"] - elapsed
         )
 
         if room["black_time"] <= 0:
-
             room["black_time"] = 0
-
             room["game_over"] = True
             room["winner"] = 2
             room["draw"] = False
-
             room["winning_line"] = None
-
             room["red_score"] += 1
 
     else:
-
         room["red_time"] = max(
             0,
             room["red_time"] - elapsed
         )
 
         if room["red_time"] <= 0:
-
             room["red_time"] = 0
-
             room["game_over"] = True
             room["winner"] = 1
             room["draw"] = False
-
             room["winning_line"] = None
-
             room["black_score"] += 1
 
 
@@ -279,8 +238,7 @@ def get_state(room):
         "players": {
             "1": {
                 "connected": room["players"].get(
-                    1,
-                    {}
+                    1, {}
                 ).get(
                     "connected",
                     False
@@ -289,8 +247,7 @@ def get_state(room):
 
             "2": {
                 "connected": room["players"].get(
-                    2,
-                    {}
+                    2, {}
                 ).get(
                     "connected",
                     False
@@ -302,30 +259,20 @@ def get_state(room):
 
 async def send_json(websocket, data):
     try:
-
         await websocket.send(
             json.dumps(data)
         )
-
-    except Exception as e:
-
-        print(
-            "SEND ERROR:",
-            repr(e)
-        )
+    except Exception:
+        pass
 
 
 async def broadcast_state(room):
     state = get_state(room)
 
     for player_data in room["players"].values():
-
-        websocket = player_data.get(
-            "socket"
-        )
+        websocket = player_data.get("socket")
 
         if websocket is not None:
-
             await send_json(
                 websocket,
                 state
@@ -334,7 +281,6 @@ async def broadcast_state(room):
 
 def find_player_by_socket(room, websocket):
     for player, data in room["players"].items():
-
         if data.get("socket") == websocket:
             return player
 
@@ -342,9 +288,7 @@ def find_player_by_socket(room, websocket):
 
 
 async def handle_create(websocket):
-
     room_code = new_room()
-
     room = rooms[room_code]
 
     token = create_session_token()
@@ -356,19 +300,12 @@ async def handle_create(websocket):
         "room": room_code,
     }
 
-    print(
-        f"ROOM CREATED: {room_code}"
-    )
-
     await send_json(
         websocket,
         {
             "type": "created",
-
             "room": room_code,
-
             "player": 1,
-
             "session_token": token,
         }
     )
@@ -377,35 +314,28 @@ async def handle_create(websocket):
 
 
 async def handle_join(websocket, room_code):
-
-    room_code = str(
-        room_code
-    ).upper().strip()
+    room_code = str(room_code).upper().strip()
 
     if room_code not in rooms:
-
         await send_json(
             websocket,
             {
                 "type": "error",
-                "message": "Room introuvable.",
+                "message": "Room introuvable."
             }
         )
-
         return
 
     room = rooms[room_code]
 
     if 2 in room["players"]:
-
         await send_json(
             websocket,
             {
                 "type": "error",
-                "message": "Room sa deja gen 2 jwè.",
+                "message": "Room sa deja gen 2 jwè."
             }
         )
-
         return
 
     token = create_session_token()
@@ -417,19 +347,12 @@ async def handle_join(websocket, room_code):
         "room": room_code,
     }
 
-    print(
-        f"PLAYER 2 JOINED ROOM: {room_code}"
-    )
-
     await send_json(
         websocket,
         {
             "type": "joined",
-
             "room": room_code,
-
             "player": 2,
-
             "session_token": token,
         }
     )
@@ -438,17 +361,15 @@ async def handle_join(websocket, room_code):
 
 
 async def handle_find_match(websocket):
-
-    # Retire doublon
+    # Retire old duplicate entries
     matchmaking_queue[:] = [
         item
         for item in matchmaking_queue
         if item["socket"] is not websocket
     ]
 
-    # Si gen yon lòt jwè k ap tann
+    # If another player is waiting, create a room
     if matchmaking_queue:
-
         opponent = matchmaking_queue.pop(0)
 
         websocket2 = opponent["socket"]
@@ -460,27 +381,15 @@ async def handle_find_match(websocket):
 
         room = rooms[room_code]
 
-        player1_token = (
-            room["players"][1]["session_token"]
-        )
-
-        player2_token = (
-            room["players"][2]["session_token"]
-        )
-
-        print(
-            f"MATCH FOUND: {room_code}"
-        )
+        player1_token = room["players"][1]["session_token"]
+        player2_token = room["players"][2]["session_token"]
 
         await send_json(
             websocket2,
             {
                 "type": "match_found",
-
                 "room": room_code,
-
                 "player": 1,
-
                 "session_token": player1_token,
             }
         )
@@ -489,11 +398,8 @@ async def handle_find_match(websocket):
             websocket,
             {
                 "type": "match_found",
-
                 "room": room_code,
-
                 "player": 2,
-
                 "session_token": player2_token,
             }
         )
@@ -501,38 +407,27 @@ async def handle_find_match(websocket):
         await broadcast_state(room)
 
     else:
-
         matchmaking_queue.append(
             {
                 "socket": websocket
             }
         )
 
-        print(
-            "PLAYER ADDED TO MATCHMAKING QUEUE"
-        )
-
         await send_json(
             websocket,
             {
                 "type": "searching",
-
-                "message": "Ap chèche yon adversè...",
+                "message": "Ap chèche yon adversè..."
             }
         )
 
 
 async def handle_cancel_match(websocket):
-
     matchmaking_queue[:] = [
         item
         for item in matchmaking_queue
         if item["socket"] is not websocket
     ]
-
-    print(
-        "MATCHMAKING CANCELLED"
-    )
 
     await send_json(
         websocket,
@@ -548,30 +443,21 @@ async def handle_reconnect(
     player,
     session_token
 ):
-
-    room_code = str(
-        room_code
-    ).upper().strip()
+    room_code = str(room_code).upper().strip()
 
     try:
-
         player = int(player)
-
     except Exception:
-
         return
 
     if room_code not in rooms:
-
         await send_json(
             websocket,
             {
                 "type": "error",
-
-                "message": "Room pa egziste.",
+                "message": "Room pa egziste."
             }
         )
-
         return
 
     room = rooms[room_code]
@@ -581,40 +467,25 @@ async def handle_reconnect(
 
     player_data = room["players"][player]
 
-    if (
-        player_data.get(
-            "session_token"
-        )
-        != session_token
-    ):
-
+    if player_data.get("session_token") != session_token:
         await send_json(
             websocket,
             {
                 "type": "error",
-
-                "message": "Session token invalid.",
+                "message": "Session token invalid."
             }
         )
-
         return
 
     player_data["socket"] = websocket
     player_data["connected"] = True
 
-    print(
-        f"PLAYER RECONNECTED: room={room_code} player={player}"
-    )
-
     await send_json(
         websocket,
         {
             "type": "reconnected",
-
             "room": room_code,
-
             "player": player,
-
             "session_token": session_token,
         }
     )
@@ -628,10 +499,7 @@ async def handle_move(
     row,
     col
 ):
-
-    room_code = str(
-        room_code
-    ).upper().strip()
+    room_code = str(room_code).upper().strip()
 
     if room_code not in rooms:
         return
@@ -644,93 +512,38 @@ async def handle_move(
     )
 
     if player is None:
-
-        print(
-            "MOVE REFUSED: player not found"
-        )
-
         return
 
     if room["game_over"]:
-
-        print(
-            "MOVE REFUSED: game already over"
-        )
-
         return
 
     if room["rematch_request"] is not None:
-
-        print(
-            "MOVE REFUSED: rematch pending"
-        )
-
         return
 
     if player != room["turn"]:
-
-        print(
-            f"MOVE REFUSED: wrong turn "
-            f"player={player} "
-            f"turn={room['turn']}"
-        )
-
         return
 
     try:
-
         row = int(row)
         col = int(col)
-
     except Exception:
-
-        print(
-            "MOVE REFUSED: invalid coordinates"
-        )
-
         return
 
     if not (
         0 <= row < BOARD_SIZE
-        and
-        0 <= col < BOARD_SIZE
+        and 0 <= col < BOARD_SIZE
     ):
-
-        print(
-            f"MOVE REFUSED: coordinates "
-            f"row={row} col={col}"
-        )
-
         return
 
     if room["board"][row][col] != 0:
-
-        print(
-            f"MOVE REFUSED: cell occupied "
-            f"row={row} col={col}"
-        )
-
         return
-
-    # IMPORTANT:
-    # Men sa a server la resevwa mouvman an.
-    print(
-        f"MOVE RECU: "
-        f"room={room_code} "
-        f"player={player} "
-        f"row={row} "
-        f"col={col}"
-    )
 
     update_timers(room)
 
     if room["game_over"]:
-
         await broadcast_state(room)
-
         return
 
-    # Mete pion an
     room["board"][row][col] = player
 
     room["last_move"] = {
@@ -740,7 +553,6 @@ async def handle_move(
     }
 
     room["last_move_was_win"] = False
-
     room["winning_line"] = None
 
     winning_line = get_winning_line(
@@ -751,17 +563,14 @@ async def handle_move(
     )
 
     if winning_line is not None:
-
         room["game_over"] = True
-
         room["winner"] = player
-
         room["draw"] = False
 
         room["winning_line"] = [
             {
                 "row": r,
-                "col": c,
+                "col": c
             }
             for r, c in winning_line
         ]
@@ -769,43 +578,21 @@ async def handle_move(
         room["last_move_was_win"] = True
 
         if player == 1:
-
             room["black_score"] += 1
-
         else:
-
             room["red_score"] += 1
 
-        print(
-            f"WIN: room={room_code} "
-            f"player={player}"
-        )
-
-    elif board_is_full(
-        room["board"]
-    ):
-
+    elif board_is_full(room["board"]):
         room["game_over"] = True
-
         room["winner"] = 0
-
         room["draw"] = True
 
-        print(
-            f"DRAW: room={room_code}"
-        )
-
     else:
-
         room["turn"] = (
-            2
-            if player == 1
-            else 1
+            2 if player == 1 else 1
         )
 
-    room["last_timer_update"] = (
-        time.monotonic()
-    )
+    room["last_timer_update"] = time.monotonic()
 
     await broadcast_state(room)
 
@@ -814,10 +601,7 @@ async def handle_rematch_request(
     websocket,
     room_code
 ):
-
-    room_code = str(
-        room_code
-    ).upper().strip()
+    room_code = str(room_code).upper().strip()
 
     if room_code not in rooms:
         return
@@ -838,24 +622,14 @@ async def handle_rematch_request(
     if room["rematch_request"] is not None:
         return
 
-    last_player = (
-        room["last_move"]["player"]
-    )
+    last_player = room["last_move"]["player"]
 
     if player != last_player:
         return
 
     room["rematch_request"] = player
 
-    room["last_timer_update"] = (
-        time.monotonic()
-    )
-
-    print(
-        f"REMATCH REQUEST: "
-        f"room={room_code} "
-        f"player={player}"
-    )
+    room["last_timer_update"] = time.monotonic()
 
     await broadcast_state(room)
 
@@ -865,10 +639,7 @@ async def handle_rematch_response(
     room_code,
     accepted
 ):
-
-    room_code = str(
-        room_code
-    ).upper().strip()
+    room_code = str(room_code).upper().strip()
 
     if room_code not in rooms:
         return
@@ -892,41 +663,29 @@ async def handle_rematch_response(
         return
 
     if accepted:
-
         last_move = room["last_move"]
 
         if last_move is not None:
-
             row = last_move["row"]
-
             col = last_move["col"]
-
-            last_player = (
-                last_move["player"]
-            )
+            last_player = last_move["player"]
 
             room["board"][row][col] = 0
 
             if room["last_move_was_win"]:
-
                 if last_player == 1:
-
                     room["black_score"] = max(
                         0,
                         room["black_score"] - 1
                     )
-
                 else:
-
                     room["red_score"] = max(
                         0,
                         room["red_score"] - 1
                     )
 
             room["game_over"] = False
-
             room["winner"] = 0
-
             room["draw"] = False
 
             room["winning_line"] = None
@@ -934,26 +693,11 @@ async def handle_rematch_response(
             room["turn"] = last_player
 
             room["last_move"] = None
-
             room["last_move_was_win"] = False
-
-            print(
-                f"REMATCH ACCEPTED: "
-                f"room={room_code}"
-            )
-
-    else:
-
-        print(
-            f"REMATCH REFUSED: "
-            f"room={room_code}"
-        )
 
     room["rematch_request"] = None
 
-    room["last_timer_update"] = (
-        time.monotonic()
-    )
+    room["last_timer_update"] = time.monotonic()
 
     await broadcast_state(room)
 
@@ -962,10 +706,7 @@ async def handle_reset(
     websocket,
     room_code
 ):
-
-    room_code = str(
-        room_code
-    ).upper().strip()
+    room_code = str(room_code).upper().strip()
 
     if room_code not in rooms:
         return
@@ -984,8 +725,7 @@ async def handle_reset(
         return
 
     room["starter"] = (
-        2
-        if room["starter"] == 1
+        2 if room["starter"] == 1
         else 1
     )
 
@@ -999,70 +739,41 @@ async def handle_reset(
     ]
 
     room["black_time"] = START_TIME
-
     room["red_time"] = START_TIME
 
-    room["last_timer_update"] = (
-        time.monotonic()
-    )
+    room["last_timer_update"] = time.monotonic()
 
     room["game_over"] = False
-
     room["winner"] = 0
-
     room["draw"] = False
 
     room["last_move"] = None
-
     room["last_move_was_win"] = False
 
     room["winning_line"] = None
 
     room["rematch_request"] = None
 
-    print(
-        f"NEW GAME: "
-        f"room={room_code} "
-        f"game={room['game_number']} "
-        f"starter={room['starter']}"
-    )
-
     await broadcast_state(room)
 
 
 async def mark_disconnected(websocket):
-
-    # Retire nan matchmaking queue
+    # Remove from matchmaking queue
     matchmaking_queue[:] = [
         item
         for item in matchmaking_queue
         if item["socket"] is not websocket
     ]
 
-    for room in list(
-        rooms.values()
-    ):
-
+    for room in list(rooms.values()):
         player = find_player_by_socket(
             room,
             websocket
         )
 
         if player is not None:
-
-            room["players"][player][
-                "connected"
-            ] = False
-
-            room["players"][player][
-                "socket"
-            ] = None
-
-            print(
-                f"PLAYER DISCONNECTED: "
-                f"room={room.get('players', {}).get(player, {}).get('room')} "
-                f"player={player}"
-            )
+            room["players"][player]["connected"] = False
+            room["players"][player]["socket"] = None
 
             await broadcast_state(room)
 
@@ -1070,14 +781,10 @@ async def mark_disconnected(websocket):
 
 
 async def timer_loop():
-
     while True:
-
         await asyncio.sleep(1)
 
-        for room in list(
-            rooms.values()
-        ):
+        for room in list(rooms.values()):
 
             if room["game_over"]:
                 continue
@@ -1086,71 +793,38 @@ async def timer_loop():
                 continue
 
             old_black = room["black_time"]
-
             old_red = room["red_time"]
-
             old_over = room["game_over"]
 
             update_timers(room)
 
             changed = (
-                old_black
-                != room["black_time"]
-                or
-                old_red
-                != room["red_time"]
-                or
-                old_over
-                != room["game_over"]
+                old_black != room["black_time"]
+                or old_red != room["red_time"]
+                or old_over != room["game_over"]
             )
 
             if changed:
-
                 await broadcast_state(room)
 
 
 async def client_handler(websocket):
-
-    print(
-        "NEW CLIENT CONNECTED"
-    )
-
     try:
-
         async for message in websocket:
 
-            print(
-                "MESSAGE RECEIVED:",
-                message
-            )
-
             try:
-
-                data = json.loads(
-                    message
-                )
-
+                data = json.loads(message)
             except Exception:
-
                 await send_json(
                     websocket,
                     {
                         "type": "error",
-
-                        "message": "JSON invalid.",
+                        "message": "JSON invalid."
                     }
                 )
-
                 continue
 
-            message_type = data.get(
-                "type"
-            )
-
-            print(
-                "MESSAGE TYPE:",
-                message_type
-            )
+            message_type = data.get("type")
 
             if message_type == "create":
 
@@ -1162,10 +836,7 @@ async def client_handler(websocket):
 
                 await handle_join(
                     websocket,
-                    data.get(
-                        "room",
-                        ""
-                    )
+                    data.get("room", "")
                 )
 
             elif message_type == "find_match":
@@ -1184,62 +855,32 @@ async def client_handler(websocket):
 
                 await handle_reconnect(
                     websocket,
-
-                    data.get(
-                        "room",
-                        ""
-                    ),
-
-                    data.get(
-                        "player"
-                    ),
-
-                    data.get(
-                        "session_token",
-                        ""
-                    )
+                    data.get("room", ""),
+                    data.get("player"),
+                    data.get("session_token", "")
                 )
 
             elif message_type == "move":
 
                 await handle_move(
                     websocket,
-
-                    data.get(
-                        "room",
-                        ""
-                    ),
-
-                    data.get(
-                        "row"
-                    ),
-
-                    data.get(
-                        "col"
-                    )
+                    data.get("room", ""),
+                    data.get("row"),
+                    data.get("col")
                 )
 
             elif message_type == "rematch_request":
 
                 await handle_rematch_request(
                     websocket,
-
-                    data.get(
-                        "room",
-                        ""
-                    )
+                    data.get("room", "")
                 )
 
             elif message_type == "rematch_response":
 
                 await handle_rematch_response(
                     websocket,
-
-                    data.get(
-                        "room",
-                        ""
-                    ),
-
+                    data.get("room", ""),
                     bool(
                         data.get(
                             "accepted",
@@ -1252,11 +893,7 @@ async def client_handler(websocket):
 
                 await handle_reset(
                     websocket,
-
-                    data.get(
-                        "room",
-                        ""
-                    )
+                    data.get("room", "")
                 )
 
             else:
@@ -1265,35 +902,26 @@ async def client_handler(websocket):
                     websocket,
                     {
                         "type": "error",
-
-                        "message": (
-                            "Type de message inconnu."
-                        ),
+                        "message": "Type de message inconnu."
                     }
                 )
 
     except websockets.exceptions.ConnectionClosed:
-
-        print(
-            "CLIENT DISCONNECTED"
-        )
+        pass
 
     except Exception as e:
-
         print(
-            "ERREUR CLIENT:",
+            "Erreur client:",
             repr(e)
         )
 
     finally:
-
         await mark_disconnected(
             websocket
         )
 
 
 async def main():
-
     print(
         f"Serveur Gomoku lancé sur "
         f"{HOST}:{PORT}"
@@ -1305,16 +933,11 @@ async def main():
 
     async with websockets.serve(
         client_handler,
-
         HOST,
-
         PORT,
-
         ping_interval=20,
-
         ping_timeout=20
     ):
-
         print(
             "WebSocket server prêt."
         )
@@ -1323,7 +946,4 @@ async def main():
 
 
 if __name__ == "__main__":
-
-    asyncio.run(
-        main()
-    )
+    asyncio.run(main())
