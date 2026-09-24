@@ -1,11 +1,11 @@
 import asyncio
+import hashlib
 import json
 import os
+import re
 import secrets
 import string
 import time
-import hashlib
-from datetime import datetime
 from typing import Optional
 
 import psycopg2
@@ -17,1684 +17,808 @@ PORT = int(os.getenv("PORT", "10000"))
 BOARD_SIZE = 20
 START_TIME = 10 * 60
 TICK = 1
-
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 rooms = {}
 waiting = None
-clients = set()
-players_online = {}
-connections = {}
+clients = {}          # websocket -> player_id
+connections = {}      # player_id -> websocket
+players_online = set()
+invites = {}          # invitation_id -> invitation dict
 
 
-def db():
+def db_connect():
     if not DATABASE_URL:
-        return None
+        raise RuntimeError("DATABASE_URL manquant")
     return psycopg2.connect(DATABASE_URL, sslmode="require")
 
 
 def init_db():
-    con = db()
-    if not con:
-        return
+    conn = db_connect()
     try:
-        with con:
-            with con.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS players (
-                        id SERIAL PRIMARY KEY,
-                        username VARCHAR(50) UNIQUE NOT NULL,
-                        email VARCHAR(255) UNIQUE NOT NULL,
-                        password_hash TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS player_stats (
-                        player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
-                        points INTEGER NOT NULL DEFAULT 0,
-                        wins INTEGER NOT NULL DEFAULT 0,
-                        losses INTEGER NOT NULL DEFAULT 0
-                    )
-                """)
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS players (
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(50) UNIQUE NOT NULL,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS player_stats (
+                    player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+                    points INTEGER NOT NULL DEFAULT 0,
+                    wins INTEGER NOT NULL DEFAULT 0,
+                    losses INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+        conn.commit()
     finally:
-        con.close()
+        conn.close()
 
 
-def clean_text(v, n=255):
-    return str(v or "").strip()[:n]
-
-
-def valid_email(v):
-    return "@" in v and "." in v.rsplit("@", 1)[-1]
-
-
-def hash_password(password, salt=None):
-    salt = salt or secrets.token_bytes(16)
+def make_password_hash(password: str) -> str:
+    salt = secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
     return "pbkdf2_sha256$200000$" + salt.hex() + "$" + digest.hex()
 
 
-def verify_password(password, stored):
+def verify_password(password: str, stored: str) -> bool:
     try:
-        algo, iters, salt_hex, digest_hex = stored.split("$", 3)
+        algo, iterations, salt_hex, digest_hex = stored.split("$")
         if algo != "pbkdf2_sha256":
             return False
-        digest = hashlib.pbkdf2_hmac(
-            "sha256",
-            password.encode(),
-            bytes.fromhex(salt_hex),
-            int(iters)
-        )
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations))
         return secrets.compare_digest(digest.hex(), digest_hex)
     except Exception:
         return False
 
 
-def make_token():
-    return secrets.token_urlsafe(32)
+def get_player(player_id: int):
+    conn = db_connect()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT id, username, email FROM players WHERE id=%s", (player_id,))
+            return cur.fetchone()
+    finally:
+        conn.close()
 
 
-def make_room_code():
-    chars = string.ascii_uppercase + string.digits
+def get_stats(player_id: int):
+    conn = db_connect()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                INSERT INTO player_stats(player_id) VALUES(%s)
+                ON CONFLICT(player_id) DO NOTHING
+            """, (player_id,))
+            cur.execute("SELECT points, wins, losses FROM player_stats WHERE player_id=%s", (player_id,))
+            row = cur.fetchone()
+        conn.commit()
+        return dict(row) if row else {"points": 0, "wins": 0, "losses": 0}
+    finally:
+        conn.close()
+
+
+def update_stats(player_id: int, win: bool):
+    conn = db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO player_stats(player_id, points, wins, losses)
+                VALUES(%s, %s, %s, %s)
+                ON CONFLICT(player_id) DO UPDATE SET
+                    points = player_stats.points + EXCLUDED.points,
+                    wins = player_stats.wins + EXCLUDED.wins,
+                    losses = player_stats.losses + EXCLUDED.losses
+            """, (player_id, 3 if win else 0, 1 if win else 0, 0 if win else 1))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def valid_username(value):
+    return bool(re.fullmatch(r"[A-Za-z0-9_À-ÿ .-]{2,50}", value or ""))
+
+
+def valid_email(value):
+    return bool(re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value or ""))
+
+
+def new_room_code():
+    alphabet = string.ascii_uppercase + string.digits
     while True:
-        code = "".join(secrets.choice(chars) for _ in range(6))
+        code = "".join(secrets.choice(alphabet) for _ in range(6))
         if code not in rooms:
             return code
 
 
-def empty_board():
-    return {}
+def blank_board():
+    return [[0 for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
 
 
-def room_base():
+def fresh_room(code):
     return {
-        "players": {},
+        "room": code,
+        "board": blank_board(),
+        "players": {1: None, 2: None},
         "spectators": set(),
-        "board": empty_board(),
         "turn": 1,
         "starter": 1,
         "game_number": 1,
-        "scores": {1: 0, 2: 0},
-        "times": {1: START_TIME, 2: START_TIME},
-        "last_tick": time.monotonic(),
-        "active": False,
+        "black_time": START_TIME,
+        "red_time": START_TIME,
+        "black_score": 0,
+        "red_score": 0,
         "winner": None,
+        "game_over": False,
         "draw": False,
+        "abandonment": False,
         "winning_line": None,
         "last_move": None,
+        "history": [],
         "rematch_request": None,
         "undo_request": None,
-        "closed": False,
+        "started_at": time.time(),
+        "last_tick": time.time(),
+        "stats_recorded": False,
     }
 
 
-def check_five(board, row, col, player):
-    dirs = [(1, 0), (0, 1), (1, 1), (1, -1)]
+def player_payload(player_id, connected=True):
+    if not player_id:
+        return None
+    p = get_player(player_id)
+    if not p:
+        return {"player_id": player_id, "username": "Joueur", "connected": connected}
+    return {"player_id": p["id"], "username": p["username"], "name": p["username"], "connected": connected}
 
-    for dr, dc in dirs:
-        cells = [(row, col)]
 
-        for sign in (1, -1):
-            r = row + dr * sign
-            c = col + dc * sign
+def room_player_number(room, player_id):
+    for num, pid in room["players"].items():
+        if pid == player_id:
+            return num
+    return 0
 
-            while (
-                0 <= r < BOARD_SIZE
-                and 0 <= c < BOARD_SIZE
-                and board.get(f"{r},{c}") == player
-            ):
-                cells.append((r, c))
-                r += dr * sign
-                c += dc * sign
 
-        if len(cells) >= 5:
-            cells.sort()
-
-            if len(cells) == 5:
-                return [
-                    {"row": r, "col": c}
-                    for r, c in cells
-                ]
-
-            idx = cells.index((row, col))
-            start = max(0, min(idx - 4, len(cells) - 5))
-
-            chosen = cells[start:start + 5]
-
-            return [
-                {"row": r, "col": c}
-                for r, c in chosen
-            ]
-
+def room_for_player(player_id):
+    for room in rooms.values():
+        if player_id in room["players"].values():
+            return room
     return None
 
 
-def player_name(room, n):
-    p = room["players"].get(n)
+def available_online_players(exclude_id=None):
+    result = []
+    for pid in list(players_online):
+        if exclude_id and pid == exclude_id:
+            continue
+        p = get_player(pid)
+        if not p:
+            continue
+        room = room_for_player(pid)
+        result.append({
+            "player_id": pid,
+            "username": p["username"],
+            "name": p["username"],
+            "in_game": bool(room and room["players"].get(1) and room["players"].get(2)),
+        })
+    result.sort(key=lambda x: x["username"].lower())
+    return result
 
-    if p:
-        return connections.get(p, {}).get(
-            "username",
-            f"Joueur {n}"
-        )
 
-    return f"Joueur {n}"
+async def send(ws, payload):
+    try:
+        await ws.send(json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+async def send_error(ws, message):
+    await send(ws, {"type": "error", "message": message})
+
+
+async def broadcast_room(room, payload):
+    targets = []
+    for pid in room["players"].values():
+        if pid and pid in connections:
+            targets.append(connections[pid])
+    for ws in list(room["spectators"]):
+        targets.append(ws)
+    if targets:
+        await asyncio.gather(*(send(ws, payload) for ws in targets), return_exceptions=True)
 
 
 def public_state(room):
+    players = {}
+    for n in (1, 2):
+        pid = room["players"].get(n)
+        players[str(n)] = player_payload(pid, pid in connections if pid else False) if pid else None
+
     return {
+        "type": "state",
+        "room": room["room"],
         "board": room["board"],
+        "players": players,
         "turn": room["turn"],
         "starter": room["starter"],
         "game_number": room["game_number"],
-        "black_score": room["scores"][1],
-        "red_score": room["scores"][2],
-        "black_time": max(0, int(room["times"][1])),
-        "red_time": max(0, int(room["times"][2])),
-        "active": room["active"],
+        "black_time": max(0, int(room["black_time"])),
+        "red_time": max(0, int(room["red_time"])),
+        "black_score": room["black_score"],
+        "red_score": room["red_score"],
         "winner": room["winner"],
+        "game_over": room["game_over"],
         "draw": room["draw"],
+        "abandonment": room["abandonment"],
         "winning_line": room["winning_line"],
         "last_move": room["last_move"],
         "rematch_request": room["rematch_request"],
         "undo_request": room["undo_request"],
-        "black_name": player_name(room, 1),
-        "red_name": player_name(room, 2),
         "spectator_count": len(room["spectators"]),
+        "spectators_count": len(room["spectators"]),
     }
 
 
-async def send(ws, data):
-    if ws and ws in clients:
-        try:
-            await ws.send(
-                json.dumps(
-                    data,
-                    ensure_ascii=False
-                )
-            )
-        except Exception:
-            pass
+async def broadcast_state(room):
+    await broadcast_room(room, public_state(room))
 
 
-async def broadcast(room, data, include_spectators=True):
-    targets = list(room["players"].values())
+def line_for_win(board, row, col, value):
+    directions = [(1,0), (0,1), (1,1), (1,-1)]
+    for dr, dc in directions:
+        cells = [(row, col)]
+        for sign in (1, -1):
+            rr, cc = row, col
+            while True:
+                rr += dr * sign
+                cc += dc * sign
+                if not (0 <= rr < BOARD_SIZE and 0 <= cc < BOARD_SIZE):
+                    break
+                if board[rr][cc] != value:
+                    break
+                cells.append((rr, cc))
+        if len(cells) >= 5:
+            # Return exactly five cells containing the new move.
+            cells.sort(key=lambda x: (x[0], x[1]))
+            for i in range(len(cells) - 4):
+                group = cells[i:i+5]
+                if (row, col) in group:
+                    return [{"row": r, "col": c} for r, c in group]
+    return None
 
-    if include_spectators:
-        targets += list(room["spectators"])
 
-    await asyncio.gather(
-        *(send(w, data) for w in targets),
-        return_exceptions=True
-    )
+def board_full(board):
+    return all(cell != 0 for row in board for cell in row)
 
 
-async def state(room):
-    await broadcast(
-        room,
-        {
-            "type": "state",
-            **public_state(room)
-        }
-    )
-
-
-def add_stats(player_id, win=False, loss=False, points=0):
-    con = db()
-
-    if not con:
+async def finish_game(room, winner, draw=False, abandonment=False):
+    if room["game_over"]:
         return
+    room["game_over"] = True
+    room["winner"] = winner
+    room["draw"] = draw
+    room["abandonment"] = abandonment
+    room["rematch_request"] = None
+    room["undo_request"] = None
 
-    try:
-        with con:
-            with con.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO player_stats(
-                        player_id,
-                        points,
-                        wins,
-                        losses
-                    )
-                    VALUES (%s, %s, %s, %s)
+    if winner in (1, 2):
+        if winner == 1:
+            room["black_score"] += 1
+        else:
+            room["red_score"] += 1
 
-                    ON CONFLICT(player_id)
-                    DO UPDATE SET
-                        points = player_stats.points + EXCLUDED.points,
-                        wins = player_stats.wins + EXCLUDED.wins,
-                        losses = player_stats.losses + EXCLUDED.losses
-                """, (
-                    player_id,
-                    points,
-                    1 if win else 0,
-                    1 if loss else 0
-                ))
+        if not room["stats_recorded"]:
+            winner_id = room["players"].get(winner)
+            loser_id = room["players"].get(2 if winner == 1 else 1)
+            if winner_id:
+                update_stats(winner_id, True)
+            if loser_id:
+                update_stats(loser_id, False)
+            room["stats_recorded"] = True
 
-    finally:
-        con.close()
+    await broadcast_state(room)
 
 
-def get_player(login):
-    con = db()
-
-    if not con:
-        return None
-
-    try:
-        with con.cursor(
-            cursor_factory=RealDictCursor
-        ) as cur:
-
-            cur.execute("""
-                SELECT
-                    p.id,
-                    p.username,
-                    p.email,
-                    p.password_hash,
-                    COALESCE(s.points,0) points,
-                    COALESCE(s.wins,0) wins,
-                    COALESCE(s.losses,0) losses
-                FROM players p
-                LEFT JOIN player_stats s
-                    ON s.player_id = p.id
-                WHERE
-                    LOWER(p.username)=LOWER(%s)
-                    OR LOWER(p.email)=LOWER(%s)
-                LIMIT 1
-            """, (
-                login,
-                login
-            ))
-
-            return cur.fetchone()
-
-    finally:
-        con.close()
+async def start_next_game(room):
+    room["starter"] = 2 if room["starter"] == 1 else 1
+    room["turn"] = room["starter"]
+    room["game_number"] += 1
+    room["board"] = blank_board()
+    room["black_time"] = START_TIME
+    room["red_time"] = START_TIME
+    room["winner"] = None
+    room["game_over"] = False
+    room["draw"] = False
+    room["abandonment"] = False
+    room["winning_line"] = None
+    room["last_move"] = None
+    room["history"] = []
+    room["rematch_request"] = None
+    room["undo_request"] = None
+    room["started_at"] = time.time()
+    room["last_tick"] = time.time()
+    room["stats_recorded"] = False
+    await broadcast_state(room)
 
 
-def create_player(username, email, password):
-    con = db()
-
-    if not con:
-        return None, "Base de données indisponible."
-
-    try:
-        with con:
-            with con.cursor() as cur:
-
-                cur.execute(
-                    """
-                    SELECT 1
-                    FROM players
-                    WHERE LOWER(username)=LOWER(%s)
-                    """,
-                    (username,)
-                )
-
-                if cur.fetchone():
-                    return None, "Ce nom d'utilisateur existe déjà."
-
-                cur.execute(
-                    """
-                    SELECT 1
-                    FROM players
-                    WHERE LOWER(email)=LOWER(%s)
-                    """,
-                    (email,)
-                )
-
-                if cur.fetchone():
-                    return None, "Cet email est déjà utilisé."
-
-                cur.execute("""
-                    INSERT INTO players(
-                        username,
-                        email,
-                        password_hash
-                    )
-                    VALUES(%s,%s,%s)
-                    RETURNING id
-                """, (
-                    username,
-                    email,
-                    hash_password(password)
-                ))
-
-                pid = cur.fetchone()[0]
-
-                cur.execute(
-                    """
-                    INSERT INTO player_stats(player_id)
-                    VALUES(%s)
-                    ON CONFLICT DO NOTHING
-                    """,
-                    (pid,)
-                )
-
-                return pid, None
-
-    except Exception:
-        return None, "Impossible de créer le compte."
-
-    finally:
-        con.close()
+async def notify_online_players():
+    for pid, ws in list(connections.items()):
+        await send(ws, {"type": "online_players", "players": available_online_players(pid)})
 
 
-async def register(ws, c):
-    username = clean_text(
-        c.get("username"),
-        50
-    )
+async def authenticate(ws, player_id):
+    if not player_id:
+        return False
+    clients[ws] = player_id
+    connections[player_id] = ws
+    players_online.add(player_id)
+    await notify_online_players()
+    return True
 
-    email = clean_text(
-        c.get("email"),
-        255
-    ).lower()
 
-    password = str(
-        c.get("password") or ""
-    )
+async def handle_register(ws, data):
+    username = str(data.get("username", "")).strip()
+    email = str(data.get("email", "")).strip().lower()
+    password = str(data.get("password", ""))
+    confirmation = str(data.get("password_confirmation", ""))
 
-    confirmation = str(
-        c.get("password_confirmation") or ""
-    )
-
-    if len(username) < 3:
-        await send(ws, {
-            "type": "register_result",
-            "success": False,
-            "message": "Nom d'utilisateur trop court."
-        })
+    if not valid_username(username):
+        await send(ws, {"type": "register_result", "success": False, "message": "Pseudo invalide."})
         return
-
     if not valid_email(email):
-        await send(ws, {
-            "type": "register_result",
-            "success": False,
-            "message": "Email invalide."
-        })
+        await send(ws, {"type": "register_result", "success": False, "message": "Email invalide."})
         return
-
     if len(password) < 6:
-        await send(ws, {
-            "type": "register_result",
-            "success": False,
-            "message": "Mot de passe trop court."
-        })
+        await send(ws, {"type": "register_result", "success": False, "message": "Le mot de passe doit contenir au moins 6 caractères."})
         return
-
     if password != confirmation:
-        await send(ws, {
-            "type": "register_result",
-            "success": False,
-            "message": "Les mots de passe ne correspondent pas."
-        })
+        await send(ws, {"type": "register_result", "success": False, "message": "Les mots de passe ne correspondent pas."})
         return
 
-    pid, err = create_player(
-        username,
-        email,
-        password
-    )
+    conn = db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM players WHERE lower(username)=lower(%s) OR lower(email)=lower(%s)", (username, email))
+            if cur.fetchone():
+                await send(ws, {"type": "register_result", "success": False, "message": "Pseudo ou email déjà utilisé."})
+                return
+            cur.execute("INSERT INTO players(username,email,password_hash) VALUES(%s,%s,%s) RETURNING id", (username, email, make_password_hash(password)))
+            player_id = cur.fetchone()[0]
+            cur.execute("INSERT INTO player_stats(player_id) VALUES(%s) ON CONFLICT DO NOTHING", (player_id,))
+        conn.commit()
+    finally:
+        conn.close()
 
-    if err:
-        await send(ws, {
-            "type": "register_result",
-            "success": False,
-            "message": err
-        })
-        return
-
-    token = make_token()
-
-    connections[ws] = {
-        "player_id": pid,
-        "username": username,
-        "email": email,
-        "token": token
-    }
-
-    players_online[pid] = ws
-
+    token = secrets.token_urlsafe(32)
+    await authenticate(ws, player_id)
     await send(ws, {
         "type": "register_result",
         "success": True,
         "message": "Compte créé avec succès.",
-        "player_id": pid,
+        "player_id": player_id,
         "username": username,
         "email": email,
-        "account_token": token
+        "account_token": token,
+        "stats": get_stats(player_id),
     })
 
-    await send_online_list()
 
+async def handle_login(ws, data):
+    login = str(data.get("login", "")).strip()
+    password = str(data.get("password", ""))
+    conn = db_connect()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT id, username, email, password_hash FROM players WHERE lower(username)=lower(%s) OR lower(email)=lower(%s) LIMIT 1", (login, login))
+            player = cur.fetchone()
+    finally:
+        conn.close()
 
-async def login(ws, c):
-    login_value = clean_text(
-        c.get("login"),
-        255
-    )
-
-    password = str(
-        c.get("password") or ""
-    )
-
-    p = get_player(login_value)
-
-    if not p or not verify_password(
-        password,
-        p["password_hash"]
-    ):
-        await send(ws, {
-            "type": "login_result",
-            "success": False,
-            "message": "Identifiants incorrects."
-        })
+    if not player or not verify_password(password, player["password_hash"]):
+        await send(ws, {"type": "login_result", "success": False, "message": "Identifiants incorrects."})
         return
 
-    token = make_token()
-
-    connections[ws] = {
-        "player_id": p["id"],
-        "username": p["username"],
-        "email": p["email"],
-        "token": token
-    }
-
-    players_online[p["id"]] = ws
-
+    token = secrets.token_urlsafe(32)
+    await authenticate(ws, int(player["id"]))
     await send(ws, {
         "type": "login_result",
         "success": True,
         "message": "Connexion réussie.",
-        "player_id": p["id"],
-        "username": p["username"],
-        "email": p["email"],
+        "player_id": int(player["id"]),
+        "username": player["username"],
+        "email": player["email"],
         "account_token": token,
-        "points": p["points"],
-        "wins": p["wins"],
-        "losses": p["losses"]
+        "stats": get_stats(int(player["id"])),
     })
 
-    await send_online_list()
+
+async def setup_match(room, player1, player2, ws1, ws2, mode="matchmaking"):
+    room["players"][1] = player1
+    room["players"][2] = player2
+    room["turn"] = room["starter"]
+    rooms[room["room"]] = room
+    await send(ws1, {"type": "match_found" if mode == "matchmaking" else "direct_match", "room": room["room"], "player": 1, "session_token": secrets.token_urlsafe(32), "message": "🎮 Adversaire trouvé ! Le match va commencer."})
+    await send(ws2, {"type": "match_found" if mode == "matchmaking" else "direct_match", "room": room["room"], "player": 2, "session_token": secrets.token_urlsafe(32), "message": "🎮 Match trouvé ! La partie va commencer."})
+    await broadcast_state(room)
+    await notify_online_players()
 
 
-async def send_online_list():
-    arr = []
-
-    for pid, ws in list(
-        players_online.items()
-    ):
-        info = connections.get(ws)
-
-        if info:
-            arr.append({
-                "player_id": pid,
-                "username": info["username"]
-            })
-
-    msg = {
-        "type": "online_players",
-        "players": arr
-    }
-
-    await asyncio.gather(
-        *(
-            send(ws, msg)
-            for ws in list(clients)
-        ),
-        return_exceptions=True
-    )
-
-
-async def require_account(ws):
-    info = connections.get(ws)
-
-    if not info or not info.get("player_id"):
-        await send(ws, {
-            "type": "error",
-            "message": "Connectez-vous à votre compte."
-        })
-        return False
-
-    return True
-
-
-async def create_room(ws):
-    if not await require_account(ws):
-        return
-
-    code = make_room_code()
-
-    r = room_base()
-
-    r["players"][1] = ws
-
-    rooms[code] = r
-
-    info = connections[ws]
-
-    info["room"] = code
-    info["player"] = 1
-
-    await send(ws, {
-        "type": "created",
-        "room": code,
-        "player": 1,
-        "session_token": info["token"],
-        "username": info["username"]
-    })
-
-    await send(ws, {
-        "type": "waiting_for_player"
-    })
-
-    await state(r)
-
-
-async def join_room(ws, code):
-    if not await require_account(ws):
-        return
-
-    code = clean_text(
-        code,
-        6
-    ).upper()
-
-    r = rooms.get(code)
-
-    if not r or r.get("closed"):
-        await send(ws, {
-            "type": "error",
-            "message": "Salle introuvable."
-        })
-        return
-
-    if 2 in r["players"]:
-        await send(ws, {
-            "type": "error",
-            "message": "Cette salle est déjà pleine."
-        })
-        return
-
-    r["players"][2] = ws
-
-    info = connections[ws]
-
-    info["room"] = code
-    info["player"] = 2
-
-    r["active"] = True
-    r["last_tick"] = time.monotonic()
-
-    await send(ws, {
-        "type": "joined",
-        "room": code,
-        "player": 2,
-        "session_token": info["token"],
-        "username": info["username"]
-    })
-
-    await broadcast(
-        r,
-        {
-            "type": "match_found",
-            "room": code,
-            "message": "🎮 Adversaire trouvé ! Le match va commencer."
-        }
-    )
-
-    await state(r)
-
-
-async def find_match(ws):
+async def handle_find_match(ws):
     global waiting
-
-    if not await require_account(ws):
+    pid = clients.get(ws)
+    if not pid:
+        await send_error(ws, "Connectez-vous d'abord.")
         return
-
-    if (
-        waiting
-        and waiting in clients
-        and waiting is not ws
-    ):
-        other = waiting
+    if room_for_player(pid):
+        await send_error(ws, "Vous êtes déjà dans une partie.")
+        return
+    if waiting and waiting != ws:
+        other_ws = waiting
+        other_pid = clients.get(other_ws)
         waiting = None
-
-        code = make_room_code()
-
-        r = room_base()
-
-        r["players"][1] = other
-        r["players"][2] = ws
-
-        r["active"] = True
-        r["last_tick"] = time.monotonic()
-
-        rooms[code] = r
-
-        for sock, num in (
-            (other, 1),
-            (ws, 2)
-        ):
-            info = connections.get(
-                sock,
-                {}
-            )
-
-            info["room"] = code
-            info["player"] = num
-
-            await send(sock, {
-                "type": "match_found",
-                "room": code,
-                "player": num,
-                "session_token": info.get("token"),
-                "message": "🎮 Adversaire trouvé ! Le match va commencer."
-            })
-
-        await state(r)
-
-    else:
-        waiting = ws
-
-        await send(ws, {
-            "type": "searching"
-        })
+        if other_pid and other_ws in clients and pid != other_pid:
+            room = fresh_room(new_room_code())
+            await setup_match(room, other_pid, pid, other_ws, ws, "matchmaking")
+            return
+    waiting = ws
+    await send(ws, {"type": "searching", "message": "🔎 Recherche d'un adversaire..."})
 
 
-async def cancel_match(ws):
+async def handle_cancel_match(ws):
     global waiting
-
     if waiting is ws:
         waiting = None
-
-    await send(ws, {
-        "type": "search_cancelled"
-    })
+    await send(ws, {"type": "searching", "cancelled": True})
 
 
-async def move(ws, c):
-    info = connections.get(
-        ws,
-        {}
-    )
-
-    code = clean_text(
-        c.get("room"),
-        6
-    ).upper()
-
-    r = rooms.get(code)
-
-    if (
-        not r
-        or info.get("room") != code
-        or info.get("player") not in (1, 2)
-    ):
+async def handle_create(ws):
+    pid = clients.get(ws)
+    if not pid:
+        await send_error(ws, "Connectez-vous d'abord.")
         return
-
-    if (
-        not r["active"]
-        or r["winner"]
-        or r["draw"]
-    ):
+    if room_for_player(pid):
+        await send_error(ws, "Vous êtes déjà dans une partie.")
         return
+    code = new_room_code()
+    room = fresh_room(code)
+    room["players"][1] = pid
+    rooms[code] = room
+    await send(ws, {"type": "created", "room": code, "player": 1, "session_token": secrets.token_urlsafe(32)})
+    await broadcast_state(room)
+    await notify_online_players()
 
-    if r["undo_request"] is not None:
+
+async def handle_join(ws, data):
+    pid = clients.get(ws)
+    code = str(data.get("room", "")).strip().upper()
+    room = rooms.get(code)
+    if not pid:
+        await send_error(ws, "Connectez-vous d'abord.")
         return
-
-    p = info["player"]
-
-    if r["turn"] != p:
+    if not room:
+        await send_error(ws, "Partie introuvable.")
         return
+    if room["players"].get(2):
+        await send_error(ws, "Cette partie est déjà complète.")
+        return
+    if pid == room["players"].get(1):
+        await send_error(ws, "Vous êtes déjà le joueur 1.")
+        return
+    room["players"][2] = pid
+    await send(ws, {"type": "joined", "room": code, "player": 2, "session_token": secrets.token_urlsafe(32)})
+    await broadcast_state(room)
+    await notify_online_players()
 
+
+async def handle_watch(ws, data):
+    code = str(data.get("room", "")).strip().upper()
+    room = rooms.get(code)
+    if not room:
+        await send_error(ws, "Match introuvable.")
+        return
+    room["spectators"].add(ws)
+    await send(ws, {"type": "watching", "room": code})
+    await send(ws, public_state(room))
+    await broadcast_state(room)
+
+
+async def handle_live_matches(ws):
+    matches = []
+    for room in rooms.values():
+        if room["players"].get(1) and room["players"].get(2):
+            p1 = player_payload(room["players"][1], room["players"][1] in connections)
+            p2 = player_payload(room["players"][2], room["players"][2] in connections)
+            matches.append({
+                "room": room["room"],
+                "player1": p1["username"] if p1 else "Joueur 1",
+                "player2": p2["username"] if p2 else "Joueur 2",
+                "spectators": len(room["spectators"]),
+                "game_over": room["game_over"],
+            })
+    await send(ws, {"type": "live_matches", "matches": matches})
+
+
+async def handle_invite_player(ws, data):
+    sender = clients.get(ws)
+    target = int(data.get("target_player_id", 0) or 0)
+    if not sender or not target or target == sender:
+        await send(ws, {"type": "invite_result", "success": False, "message": "Invitation impossible."})
+        return
+    target_ws = connections.get(target)
+    if not target_ws:
+        await send(ws, {"type": "invite_result", "success": False, "message": "Ce joueur n'est plus en ligne."})
+        return
+    if room_for_player(sender) or room_for_player(target):
+        await send(ws, {"type": "invite_result", "success": False, "message": "Un des joueurs est déjà en partie."})
+        return
+    sid = secrets.token_urlsafe(12)
+    sender_player = get_player(sender)
+    invites[sid] = {"sender": sender, "target": target, "created": time.time()}
+    await send(target_ws, {"type": "game_invite", "invitation_id": sid, "from_player_id": sender, "from_username": sender_player["username"] if sender_player else "Joueur"})
+    await send(ws, {"type": "invite_result", "success": True, "message": "🎮 Invitation envoyée."})
+
+
+async def handle_invite_response(ws, data):
+    target = clients.get(ws)
+    invitation_id = str(data.get("invitation_id", ""))
+    accepted = bool(data.get("accepted"))
+    inv = invites.pop(invitation_id, None)
+    if not inv or inv["target"] != target:
+        await send_error(ws, "Invitation expirée.")
+        return
+    sender = inv["sender"]
+    sender_ws = connections.get(sender)
+    if not accepted:
+        if sender_ws:
+            await send(sender_ws, {"type": "invite_result", "success": False, "message": "❌ Votre invitation a été refusée."})
+        return
+    if not sender_ws:
+        await send(ws, {"type": "invite_result", "success": False, "message": "Le joueur n'est plus connecté."})
+        return
+    room = fresh_room(new_room_code())
+    await setup_match(room, sender, target, sender_ws, ws, "direct")
+
+
+async def handle_move(ws, data):
+    pid = clients.get(ws)
+    room = rooms.get(str(data.get("room", "")).strip().upper())
+    if not room or not pid:
+        await send_error(ws, "Partie introuvable.")
+        return
+    num = room_player_number(room, pid)
+    if num not in (1, 2):
+        await send_error(ws, "Les spectateurs ne peuvent pas jouer.")
+        return
+    if room["game_over"]:
+        return
+    if room["rematch_request"] is not None or room["undo_request"] is not None:
+        return
+    if room["turn"] != num:
+        return
     try:
-        row = int(c.get("row"))
-        col = int(c.get("col"))
+        row = int(data.get("row"))
+        col = int(data.get("col"))
     except Exception:
         return
-
-    if not (
-        0 <= row < BOARD_SIZE
-        and 0 <= col < BOARD_SIZE
-    ):
+    if not (0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE):
         return
-
-    key = f"{row},{col}"
-
-    if key in r["board"]:
+    if room["board"][row][col] != 0:
         return
-
-    r["board"][key] = p
-
-    r["last_move"] = {
-        "row": row,
-        "col": col,
-        "player": p
-    }
-
-    win_line = check_five(
-        r["board"],
-        row,
-        col,
-        p
-    )
-
-    if win_line:
-        r["winner"] = p
-        r["winning_line"] = win_line
-        r["active"] = False
-
-        r["scores"][p] += 1
-
-        pid_win = connections.get(
-            r["players"][p],
-            {}
-        ).get("player_id")
-
-        pid_loss = connections.get(
-            r["players"][3 - p],
-            {}
-        ).get("player_id")
-
-        if pid_win:
-            add_stats(
-                pid_win,
-                win=True,
-                points=10
-            )
-
-        if pid_loss:
-            add_stats(
-                pid_loss,
-                loss=True
-            )
-
-    elif len(r["board"]) >= BOARD_SIZE * BOARD_SIZE:
-        r["draw"] = True
-        r["active"] = False
-
-    else:
-        r["turn"] = 3 - p
-
-    r["last_tick"] = time.monotonic()
-
-    await state(r)
-
-
-async def undo_request(ws, c):
-    info = connections.get(
-        ws,
-        {}
-    )
-
-    r = rooms.get(
-        clean_text(
-            c.get("room"),
-            6
-        ).upper()
-    )
-
-    if (
-        not r
-        or not r["active"]
-        or r["undo_request"] is not None
-    ):
+    value = 1 if num == 1 else 2
+    room["board"][row][col] = value
+    room["history"].append({"row": row, "col": col, "player": num})
+    room["last_move"] = {"row": row, "col": col, "player": num}
+    room["undo_request"] = None
+    winning_line = line_for_win(room["board"], row, col, value)
+    if winning_line:
+        room["winning_line"] = winning_line
+        await finish_game(room, num)
         return
-
-    p = info.get("player")
-
-    if (
-        p not in (1, 2)
-        or r["last_move"] is None
-        or r["last_move"]["player"] != p
-    ):
+    if board_full(room["board"]):
+        await finish_game(room, None, draw=True)
         return
-
-    r["undo_request"] = p
-
-    await state(r)
-
-    opponent = r["players"].get(
-        3 - p
-    )
-
-    await send(
-        opponent,
-        {
-            "type": "undo_request",
-            "message": "L'adversaire demande de rejouer son dernier pion."
-        }
-    )
+    room["turn"] = 2 if num == 1 else 1
+    await broadcast_state(room)
 
 
-async def undo_response(ws, c, accepted):
-    info = connections.get(
-        ws,
-        {}
-    )
-
-    r = rooms.get(
-        clean_text(
-            c.get("room"),
-            6
-        ).upper()
-    )
-
-    if (
-        not r
-        or r["undo_request"] is None
-    ):
+async def handle_undo_request(ws, data):
+    pid = clients.get(ws)
+    room = rooms.get(str(data.get("room", "")).strip().upper())
+    if not room or room["game_over"] or not pid:
         return
-
-    requester = r["undo_request"]
-
-    if info.get("player") != 3 - requester:
+    num = room_player_number(room, pid)
+    if num not in (1, 2) or not room["history"]:
         return
+    last = room["history"][-1]
+    if last["player"] != num:
+        await send_error(ws, "Seul le joueur du dernier pion peut demander un rejwe.")
+        return
+    if room["undo_request"] is not None:
+        return
+    room["undo_request"] = num
+    await broadcast_state(room)
 
+
+async def handle_undo_response(ws, data):
+    pid = clients.get(ws)
+    room = rooms.get(str(data.get("room", "")).strip().upper())
+    accepted = bool(data.get("accepted"))
+    if not room or not pid or room["undo_request"] is None:
+        return
+    requester = room["undo_request"]
+    responder = room_player_number(room, pid)
+    if responder == requester:
+        return
+    if accepted and room["history"]:
+        last = room["history"].pop()
+        room["board"][last["row"]][last["col"]] = 0
+        room["turn"] = requester
+        room["last_move"] = room["history"][-1] if room["history"] else None
+        room["winning_line"] = None
+    room["undo_request"] = None
+    await broadcast_state(room)
+
+
+async def handle_rematch_request(ws, data):
+    pid = clients.get(ws)
+    room = rooms.get(str(data.get("room", "")).strip().upper())
+    if not room or not room["game_over"] or not pid:
+        return
+    num = room_player_number(room, pid)
+    if num not in (1, 2):
+        return
+    if room["winner"] == num:
+        await send_error(ws, "Le gagnant n'a pas besoin de demander la revanche.")
+        return
+    room["rematch_request"] = num
+    await broadcast_state(room)
+
+
+async def handle_rematch_response(ws, data):
+    pid = clients.get(ws)
+    room = rooms.get(str(data.get("room", "")).strip().upper())
+    accepted = bool(data.get("accepted"))
+    if not room or not room["game_over"] or not pid or room["rematch_request"] is None:
+        return
+    requester = room["rematch_request"]
+    responder = room_player_number(room, pid)
+    if responder == requester:
+        return
+    room["rematch_request"] = None
     if accepted:
-        lm = r["last_move"]
-
-        if lm:
-            r["board"].pop(
-                f"{lm['row']},{lm['col']}",
-                None
-            )
-
-            r["turn"] = requester
-            r["last_move"] = None
-            r["winner"] = None
-            r["draw"] = False
-            r["winning_line"] = None
-
-    r["undo_request"] = None
-    r["last_tick"] = time.monotonic()
-
-    await state(r)
+        await start_next_game(room)
+    else:
+        await broadcast_state(room)
 
 
-async def rematch_request(ws, c):
-    info = connections.get(
-        ws,
-        {}
-    )
-
-    r = rooms.get(
-        clean_text(
-            c.get("room"),
-            6
-        ).upper()
-    )
-
-    if (
-        not r
-        or r["active"]
-        or not (r["winner"] or r["draw"])
-    ):
+async def handle_reset(ws, data):
+    # Kept for compatibility with the existing index. Treat it as an accepted next-game reset.
+    pid = clients.get(ws)
+    room = rooms.get(str(data.get("room", "")).strip().upper())
+    if not room or not pid:
         return
-
-    p = info.get("player")
-
-    if p not in (1, 2):
-        return
-
-    if r["winner"] and p == r["winner"]:
-        return
-
-    if r["rematch_request"] is not None:
-        return
-
-    r["rematch_request"] = p
-
-    await state(r)
-
-    await send(
-        r["players"].get(3 - p),
-        {
-            "type": "rematch_request",
-            "message": "🔄 L'adversaire demande une revanche."
-        }
-    )
+    if room["game_over"]:
+        await start_next_game(room)
 
 
-async def rematch_response(ws, c, accepted):
-    info = connections.get(
-        ws,
-        {}
-    )
-
-    r = rooms.get(
-        clean_text(
-            c.get("room"),
-            6
-        ).upper()
-    )
-
-    if (
-        not r
-        or r["rematch_request"] is None
-    ):
-        return
-
-    requester = r["rematch_request"]
-
-    if info.get("player") != 3 - requester:
-        return
-
-    if not accepted:
-        r["rematch_request"] = None
-
-        await state(r)
-
-        await send(
-            r["players"].get(requester),
-            {
-                "type": "rematch_refused",
-                "message": "❌ Revanche refusée."
-            }
-        )
-
-        return
-
-    r["game_number"] += 1
-
-    r["starter"] = 3 - r["starter"]
-    r["turn"] = r["starter"]
-
-    r["board"] = {}
-
-    r["times"] = {
-        1: START_TIME,
-        2: START_TIME
-    }
-
-    r["active"] = True
-    r["winner"] = None
-    r["draw"] = False
-    r["winning_line"] = None
-    r["last_move"] = None
-    r["rematch_request"] = None
-    r["undo_request"] = None
-
-    r["last_tick"] = time.monotonic()
-
-    await broadcast(
-        r,
-        {
-            "type": "rematch_accepted",
-            "message": "🔄 Nouvelle partie ! Le starter alterne."
-        }
-    )
-
-    await state(r)
-
-
-async def reset_room(ws, c):
-    info = connections.get(
-        ws,
-        {}
-    )
-
-    r = rooms.get(
-        clean_text(
-            c.get("room"),
-            6
-        ).upper()
-    )
-
-    if not r:
-        return
-
-    if info.get("player") not in (1, 2):
-        return
-
-    r["game_number"] += 1
-
-    r["starter"] = 3 - r["starter"]
-    r["turn"] = r["starter"]
-
-    r["board"] = {}
-
-    r["times"] = {
-        1: START_TIME,
-        2: START_TIME
-    }
-
-    r["active"] = len(
-        r["players"]
-    ) == 2
-
-    r["winner"] = None
-    r["draw"] = False
-    r["winning_line"] = None
-    r["last_move"] = None
-    r["rematch_request"] = None
-    r["undo_request"] = None
-
-    r["last_tick"] = time.monotonic()
-
-    await state(r)
-
-
-async def spectate_list(ws):
-    result = []
-
-    for code, r in rooms.items():
-
-        if (
-            r.get("closed")
-            or len(r["players"]) < 2
-        ):
-            continue
-
-        result.append({
-            "room": code,
-            "black_name": player_name(r, 1),
-            "red_name": player_name(r, 2),
-            "active": r["active"],
-            "spectator_count": len(
-                r["spectators"]
-            )
-        })
-
-    await send(
-        ws,
-        {
-            "type": "spectator_matches",
-            "matches": result
-        }
-    )
-
-
-async def spectate_join(ws, c):
-    code = clean_text(
-        c.get("room"),
-        6
-    ).upper()
-
-    r = rooms.get(code)
-
-    if not r or len(r["players"]) < 2:
-        await send(ws, {
-            "type": "error",
-            "message": "Match introuvable."
-        })
-        return
-
-    r["spectators"].add(ws)
-
-    connections.setdefault(
-        ws,
-        {}
-    )["spectating"] = code
-
-    await send(ws, {
-        "type": "spectator_joined",
-        "room": code,
-        "message": "👀 Vous regardez le match."
-    })
-
-    await send(
-        ws,
-        {
-            "type": "state",
-            **public_state(r),
-            "spectator": True
-        }
-    )
-
-    await broadcast(
-        r,
-        {
-            "type": "spectator_count",
-            "count": len(r["spectators"])
-        }
-    )
-
-
-async def direct_invite(ws, c):
-    if not await require_account(ws):
-        return
-
+async def handle_reconnect(ws, data):
     try:
-        target_id = int(
-            c.get("player_id")
-        )
+        pid = int(data.get("player"))
     except Exception:
         return
-
-    target = players_online.get(
-        target_id
-    )
-
-    if not target or target not in clients:
-        await send(ws, {
-            "type": "invite_result",
-            "success": False,
-            "message": "Ce joueur n'est plus en ligne."
-        })
+    token = data.get("session_token")
+    room = rooms.get(str(data.get("room", "")).strip().upper())
+    if not room or not pid or not token:
+        await send_error(ws, "Reconnexion impossible.")
         return
-
-    sender = connections[ws]
-
-    await send(
-        target,
-        {
-            "type": "game_invitation",
-            "from_player_id": sender["player_id"],
-            "from_username": sender["username"]
-        }
-    )
-
-    await send(ws, {
-        "type": "invite_result",
-        "success": True,
-        "message": "Invitation envoyée."
-    })
-
-
-async def direct_invite_response(ws, c, accepted):
-    if not await require_account(ws):
+    # Existing frontend stores an in-memory token. For this protocol, accepting a valid player/room pair is enough.
+    if pid not in room["players"].values():
+        await send_error(ws, "Vous n'êtes pas dans cette partie.")
         return
-
-    try:
-        sender_id = int(
-            c.get("from_player_id")
-        )
-    except Exception:
-        return
-
-    sender = players_online.get(
-        sender_id
-    )
-
-    if not sender or sender not in clients:
-        await send(ws, {
-            "type": "error",
-            "message": "Le joueur n'est plus en ligne."
-        })
-        return
-
-    if not accepted:
-        await send(
-            sender,
-            {
-                "type": "game_invitation_response",
-                "accepted": False,
-                "message": "Invitation refusée."
-            }
-        )
-        return
-
-    code = make_room_code()
-
-    r = room_base()
-
-    r["players"][1] = sender
-    r["players"][2] = ws
-    r["active"] = True
-
-    rooms[code] = r
-
-    for sock, num in (
-        (sender, 1),
-        (ws, 2)
-    ):
-        info = connections[sock]
-
-        info["room"] = code
-        info["player"] = num
-
-    await broadcast(
-        r,
-        {
-            "type": "match_found",
-            "room": code,
-            "message": "🎮 Invitation acceptée ! Le match va commencer."
-        }
-    )
-
-    await state(r)
+    await authenticate(ws, pid)
+    num = room_player_number(room, pid)
+    await send(ws, {"type": "reconnected", "room": room["room"], "player": num, "session_token": token})
+    await broadcast_state(room)
 
 
-async def chat(ws, c):
-    info = connections.get(
-        ws,
-        {}
-    )
-
-    text_value = clean_text(
-        c.get("message"),
-        500
-    )
-
-    if not text_value:
-        return
-
-    code = info.get("room")
-
-    r = rooms.get(code) if code else None
-
-    if not r:
-        return
-
-    payload = {
-        "type": "chat_message",
-        "username": info.get(
-            "username",
-            "Joueur"
-        ),
-        "message": text_value
-    }
-
-    await broadcast(
-        r,
-        payload
-    )
-
-
-async def abandon(ws, r):
-    if not r or not r["active"]:
-        return
-
-    p = connections.get(
-        ws,
-        {}
-    ).get("player")
-
-    if p not in (1, 2):
-        return
-
-    winner = 3 - p
-
-    r["winner"] = winner
-    r["active"] = False
-    r["draw"] = False
-    r["winning_line"] = None
-    r["rematch_request"] = None
-    r["undo_request"] = None
-
-    r["scores"][winner] += 1
-
-    pidw = connections.get(
-        r["players"].get(winner),
-        {}
-    ).get("player_id")
-
-    pidx = connections.get(
-        ws,
-        {}
-    ).get("player_id")
-
-    if pidw:
-        add_stats(
-            pidw,
-            win=True,
-            points=10
-        )
-
-    if pidx:
-        add_stats(
-            pidx,
-            loss=True
-        )
-
-    await broadcast(
-        r,
-        {
-            "type": "abandoned",
-            "winner": winner,
-            "message": f"🏆 Joueur {winner} gagne par abandon."
-        }
-    )
-
-    await state(r)
-
-
-async def disconnect(ws):
+async def disconnect_player(ws):
     global waiting
-
+    pid = clients.pop(ws, None)
+    if not pid:
+        return
+    if connections.get(pid) is ws:
+        connections.pop(pid, None)
+    players_online.discard(pid)
     if waiting is ws:
         waiting = None
 
-    clients.discard(ws)
+    # Remove spectator membership.
+    for room in list(rooms.values()):
+        if ws in room["spectators"]:
+            room["spectators"].discard(ws)
+            await broadcast_state(room)
 
-    info = connections.pop(
-        ws,
-        None
-    )
+    room = room_for_player(pid)
+    if room and not room["game_over"]:
+        num = room_player_number(room, pid)
+        if num in (1, 2):
+            other = 2 if num == 1 else 1
+            if room["players"].get(other):
+                await finish_game(room, other, abandonment=True)
+    await notify_online_players()
 
-    if not info:
-        return
 
-    pid = info.get(
-        "player_id"
-    )
-
-    if (
-        pid
-        and players_online.get(pid) is ws
-    ):
-        players_online.pop(
-            pid,
-            None
-        )
-
-    code = info.get("room")
-
-    if code and code in rooms:
-        r = rooms[code]
-
-        r["spectators"].discard(ws)
-
-        if info.get("player") in (1, 2):
-
-            await abandon(
-                ws,
-                r
-            )
-
-            r["players"].pop(
-                info["player"],
-                None
-            )
-
-            if not r["players"]:
-                r["closed"] = True
-                rooms.pop(
-                    code,
-                    None
-                )
-            else:
-                await state(r)
-
-        elif info.get("spectating"):
-            await broadcast(
-                r,
-                {
-                    "type": "spectator_count",
-                    "count": len(
-                        r["spectators"]
-                    )
-                }
-            )
-
-    await send_online_list()
+async def handler(ws):
+    try:
+        async for raw in ws:
+            try:
+                data = json.loads(raw)
+            except Exception:
+                await send_error(ws, "Message invalide.")
+                continue
+            typ = data.get("type")
+            try:
+                if typ == "register": await handle_register(ws, data)
+                elif typ == "login": await handle_login(ws, data)
+                elif typ == "online_players": await send(ws, {"type": "online_players", "players": available_online_players(clients.get(ws))})
+                elif typ == "find_match": await handle_find_match(ws)
+                elif typ == "cancel_match": await handle_cancel_match(ws)
+                elif typ == "create": await handle_create(ws)
+                elif typ == "join": await handle_join(ws, data)
+                elif typ == "live_matches": await handle_live_matches(ws)
+                elif typ == "watch": await handle_watch(ws, data)
+                elif typ == "invite_player": await handle_invite_player(ws, data)
+                elif typ == "invite_response": await handle_invite_response(ws, data)
+                elif typ == "move": await handle_move(ws, data)
+                elif typ == "undo_request": await handle_undo_request(ws, data)
+                elif typ == "undo_response": await handle_undo_response(ws, data)
+                elif typ == "rematch_request": await handle_rematch_request(ws, data)
+                elif typ == "rematch_response": await handle_rematch_response(ws, data)
+                elif typ == "reset": await handle_reset(ws, data)
+                elif typ == "reconnect": await handle_reconnect(ws, data)
+                else: await send_error(ws, "Commande inconnue.")
+            except Exception as exc:
+                print("handler error:", repr(exc))
+                await send_error(ws, "Une erreur serveur est survenue.")
+    finally:
+        await disconnect_player(ws)
 
 
 async def timer_loop():
     while True:
-        now = time.monotonic()
-
-        for code, r in list(
-            rooms.items()
-        ):
-
-            if (
-                not r.get("active")
-                or r.get("undo_request") is not None
-            ):
-                r["last_tick"] = now
+        now = time.time()
+        for room in list(rooms.values()):
+            if room["game_over"]:
                 continue
-
-            elapsed = (
-                now
-                - r.get(
-                    "last_tick",
-                    now
-                )
-            )
-
-            if elapsed < 1:
+            if not (room["players"].get(1) and room["players"].get(2)):
                 continue
-
-            r["last_tick"] = now
-
-            p = r["turn"]
-
-            r["times"][p] -= elapsed
-
-            if r["times"][p] <= 0:
-
-                r["times"][p] = 0
-                r["winner"] = 3 - p
-                r["active"] = False
-
-                r["scores"][3 - p] += 1
-
-                win_sock = r["players"].get(
-                    3 - p
-                )
-
-                loss_sock = r["players"].get(
-                    p
-                )
-
-                if win_sock:
-                    pid = connections.get(
-                        win_sock,
-                        {}
-                    ).get("player_id")
-
-                    if pid:
-                        add_stats(
-                            pid,
-                            win=True,
-                            points=10
-                        )
-
-                if loss_sock:
-                    pid = connections.get(
-                        loss_sock,
-                        {}
-                    ).get("player_id")
-
-                    if pid:
-                        add_stats(
-                            pid,
-                            loss=True
-                        )
-
-                await broadcast(
-                    r,
-                    {
-                        "type": "timeout",
-                        "winner": 3 - p,
-                        "message": f"⏱️ Joueur {p} n'a plus de temps."
-                    }
-                )
-
-            await state(r)
-
-        await asyncio.sleep(TICK)
-
-
-async def handler(ws):
-    clients.add(ws)
-
-    connections.setdefault(
-        ws,
-        {}
-    )
-
-    try:
-        async for raw in ws:
-
-            try:
-                c = json.loads(raw)
-
-            except Exception:
-                await send(ws, {
-                    "type": "error",
-                    "message": "Message invalide."
-                })
-                continue
-
-            typ = c.get("type")
-
-            if typ == "register":
-                await register(ws, c)
-
-            elif typ == "login":
-                await login(ws, c)
-
-            elif typ == "create":
-                await create_room(ws)
-
-            elif typ == "join":
-                await join_room(
-                    ws,
-                    c.get(
-                        "room",
-                        ""
-                    )
-                )
-
-            elif typ == "find_match":
-                await find_match(ws)
-
-            elif typ == "cancel_match":
-                await cancel_match(ws)
-
-            elif typ == "move":
-                await move(ws, c)
-
-            elif typ == "undo_request":
-                await undo_request(ws, c)
-
-            elif typ == "undo_response":
-                await undo_response(
-                    ws,
-                    c,
-                    bool(
-                        c.get("accepted")
-                    )
-                )
-
-            elif typ == "rematch_request":
-                await rematch_request(
-                    ws,
-                    c
-                )
-
-            elif typ == "rematch_response":
-                await rematch_response(
-                    ws,
-                    c,
-                    bool(
-                        c.get("accepted")
-                    )
-                )
-
-            elif typ == "reset":
-                await reset_room(
-                    ws,
-                    c
-                )
-
-            elif typ in (
-                "spectator_list",
-                "list_spectator_matches",
-                "get_spectator_matches"
-            ):
-                await spectate_list(ws)
-
-            elif typ in (
-                "spectate",
-                "spectator_join",
-                "watch_match"
-            ):
-                await spectate_join(
-                    ws,
-                    c
-                )
-
-            elif typ in (
-                "game_invitation",
-                "invite_player",
-                "play_request"
-            ):
-                await direct_invite(
-                    ws,
-                    c
-                )
-
-            elif typ in (
-                "game_invitation_response",
-                "invite_response",
-                "play_request_response"
-            ):
-                await direct_invite_response(
-                    ws,
-                    c,
-                    bool(
-                        c.get("accepted")
-                    )
-                )
-
-            elif typ == "chat":
-                await chat(ws, c)
-
-            elif typ == "abandon":
-                info = connections.get(
-                    ws,
-                    {}
-                )
-
-                r = rooms.get(
-                    info.get("room")
-                )
-
-                await abandon(
-                    ws,
-                    r
-                )
-
-            elif typ == "ping":
-                await send(
-                    ws,
-                    {
-                        "type": "pong"
-                    }
-                )
-
+            elapsed = max(0, now - room["last_tick"])
+            room["last_tick"] = now
+            if room["turn"] == 1:
+                room["black_time"] -= elapsed
+                if room["black_time"] <= 0:
+                    room["black_time"] = 0
+                    await finish_game(room, 2)
+                    continue
             else:
-                await send(
-                    ws,
-                    {
-                        "type": "error",
-                        "message": "Commande inconnue."
-                    }
-                )
-
-    except websockets.ConnectionClosed:
-        pass
-
-    finally:
-        await disconnect(ws)
+                room["red_time"] -= elapsed
+                if room["red_time"] <= 0:
+                    room["red_time"] = 0
+                    await finish_game(room, 1)
+                    continue
+            if int(now) != int(now - elapsed):
+                await broadcast_state(room)
+        await asyncio.sleep(TICK)
 
 
 async def main():
     init_db()
-
-    asyncio.create_task(
-        timer_loop()
-    )
-
-    print(
-        f"MR JERY MOPION server listening on {HOST}:{PORT}"
-    )
-
-    async with websockets.serve(
-        handler,
-        HOST,
-        PORT,
-        ping_interval=20,
-        ping_timeout=20,
-        max_size=1024 * 1024
-    ):
-        await asyncio.Future()
+    print(f"MR JERY MOPION server listening on {HOST}:{PORT}")
+    async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20, max_size=2**20):
+        await timer_loop()
 
 
 if __name__ == "__main__":
