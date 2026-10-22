@@ -1,2 +1,2 @@
-websockets
-psycopg2-binary
+websockets>=12,<16
+psycopg2-binary>=2.9,<3
