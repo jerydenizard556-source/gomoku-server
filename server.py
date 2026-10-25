@@ -474,6 +474,48 @@ async def handle_cancel_match(ws):
     await send(ws, {"type": "searching", "cancelled": True})
 
 
+async def handle_leave(ws, data):
+    """Explicitly leave a room; unlike a network drop, this releases membership."""
+    global waiting
+    pid = clients.get(ws)
+    requested_room = str(data.get("room", "")).strip().upper()
+
+    if waiting is ws:
+        waiting = None
+
+    # Leaving as a spectator only removes this socket from the spectator list.
+    left_spectating = False
+    for room in list(rooms.values()):
+        if ws in room["spectators"] and (not requested_room or room["room"] == requested_room):
+            room["spectators"].discard(ws)
+            await broadcast_state(room)
+            left_spectating = True
+
+    room = rooms.get(requested_room) if requested_room else room_for_player(pid) if pid else None
+    if room and pid:
+        num = room_player_number(room, pid)
+        if num in (1, 2):
+            other = 2 if num == 1 else 1
+            opponent_id = room["players"].get(other)
+
+            # Explicitly leaving an active game forfeits it for the remaining player.
+            # Clear the leaver's slot afterwards so they can join/create another match.
+            if not room["game_over"] and opponent_id:
+                await finish_game(room, other, abandonment=True)
+
+            room["players"][num] = None
+            room["rematch_request"] = None
+            room["undo_request"] = None
+            await broadcast_state(room)
+
+            # Remove an empty room so it cannot linger forever.
+            if not any(room["players"].values()) and not room["spectators"]:
+                rooms.pop(room["room"], None)
+
+    await send(ws, {"type": "left", "room": requested_room or (room["room"] if room else None), "success": True})
+    await notify_online_players()
+
+
 async def handle_create(ws):
     pid = clients.get(ws)
     if not pid:
@@ -727,28 +769,30 @@ async def handle_reconnect(ws, data):
 async def disconnect_player(ws):
     global waiting
     pid = clients.pop(ws, None)
-    if not pid:
-        return
-    if connections.get(pid) is ws:
-        connections.pop(pid, None)
-    players_online.discard(pid)
     if waiting is ws:
         waiting = None
 
-    # Remove spectator membership.
+    # Always remove this socket from spectator lists.
     for room in list(rooms.values()):
         if ws in room["spectators"]:
             room["spectators"].discard(ws)
             await broadcast_state(room)
 
-    room = room_for_player(pid)
-    if room and not room["game_over"]:
-        num = room_player_number(room, pid)
-        if num in (1, 2):
-            other = 2 if num == 1 else 1
-            if room["players"].get(other):
-                await finish_game(room, other, abandonment=True)
-    await notify_online_players()
+    if not pid:
+        return
+
+    # A replaced/older socket must not disconnect the player's newer session.
+    is_current_connection = connections.get(pid) is ws
+    if is_current_connection:
+        connections.pop(pid, None)
+        players_online.discard(pid)
+
+        # A temporary network drop is NOT an explicit leave or a forfeit.
+        # Keep room membership so the same player can reconnect to the active game.
+        room = room_for_player(pid)
+        if room:
+            await broadcast_state(room)
+        await notify_online_players()
 
 
 async def handler(ws):
@@ -766,6 +810,8 @@ async def handler(ws):
                 elif typ == "online_players": await send(ws, {"type": "online_players", "players": available_online_players(clients.get(ws))})
                 elif typ == "find_match": await handle_find_match(ws)
                 elif typ == "cancel_match": await handle_cancel_match(ws)
+                elif typ in ("leave", "leave_match", "leave_room"):
+                    await handle_leave(ws, data)
                 elif typ == "create": await handle_create(ws)
                 elif typ == "join": await handle_join(ws, data)
                 elif typ == "live_matches": await handle_live_matches(ws)
