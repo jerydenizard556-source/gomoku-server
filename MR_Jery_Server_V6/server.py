@@ -448,7 +448,7 @@ async def handler(ws):
     except websockets.exceptions.ConnectionClosed:pass
     except Exception as e:print('Erreur client:',repr(e))
     finally:await disconnect(ws)
-def health_response(request):
+def health_response(connection, request):
     # Render's health checker may send HEAD/GET to the service URL.
     # A pure WebSocket listener normally expects GET + Upgrade and logs
     # HEAD as a failed WebSocket handshake. Intercept normal HTTP probes here.
