@@ -6,6 +6,7 @@ import re
 import secrets
 import string
 import time
+from collections import defaultdict, deque
 from typing import Optional
 
 import psycopg2
@@ -25,6 +26,14 @@ clients = {}          # websocket -> player_id
 connections = {}      # player_id -> websocket
 players_online = set()
 invites = {}          # invitation_id -> invitation dict
+# Security controls: simple per-IP and per-account login throttles.
+login_attempts = defaultdict(deque)
+register_attempts = defaultdict(deque)
+MAX_LOGIN_ATTEMPTS = 8
+LOGIN_WINDOW_SECONDS = 300
+MAX_REGISTER_ATTEMPTS = 5
+REGISTER_WINDOW_SECONDS = 3600
+MAX_MESSAGE_BYTES = 64 * 1024
 
 
 def db_connect():
@@ -144,6 +153,7 @@ def fresh_room(code):
         "room": code,
         "board": blank_board(),
         "players": {1: None, 2: None},
+        "session_tokens": {1: None, 2: None},
         "spectators": set(),
         "turn": 1,
         "starter": 1,
@@ -280,13 +290,12 @@ def line_for_win(board, row, col, value):
                 if board[rr][cc] != value:
                     break
                 cells.append((rr, cc))
-        if len(cells) >= 5:
-            # Return exactly five cells containing the new move.
+        if len(cells) == 5:
             cells.sort(key=lambda x: (x[0], x[1]))
-            for i in range(len(cells) - 4):
-                group = cells[i:i+5]
-                if (row, col) in group:
-                    return [{"row": r, "col": c} for r, c in group]
+            return [{"row": r, "col": c} for r, c in cells]
+        # This project uses exact-five: a run of 6 or more is not a win.
+        if len(cells) > 5:
+            continue
     return None
 
 
@@ -359,7 +368,30 @@ async def authenticate(ws, player_id):
     return True
 
 
+def _rate_limit(bucket, key, limit, window):
+    now = time.time()
+    q = bucket[key]
+    while q and now - q[0] > window:
+        q.popleft()
+    if len(q) >= limit:
+        return False
+    q.append(now)
+    return True
+
+
+def _remote_key(ws):
+    try:
+        remote = getattr(ws, "remote_address", None)
+        return str(remote[0]) if remote else "unknown"
+    except Exception:
+        return "unknown"
+
+
 async def handle_register(ws, data):
+    ip = _remote_key(ws)
+    if not _rate_limit(register_attempts, ip, MAX_REGISTER_ATTEMPTS, REGISTER_WINDOW_SECONDS):
+        await send(ws, {"type": "register_result", "success": False, "message": "Trop de tentatives. Réessayez plus tard."})
+        return
     username = str(data.get("username", "")).strip()
     email = str(data.get("email", "")).strip().lower()
     password = str(data.get("password", ""))
@@ -371,8 +403,8 @@ async def handle_register(ws, data):
     if not valid_email(email):
         await send(ws, {"type": "register_result", "success": False, "message": "Email invalide."})
         return
-    if len(password) < 6:
-        await send(ws, {"type": "register_result", "success": False, "message": "Le mot de passe doit contenir au moins 6 caractères."})
+    if len(password) < 10:
+        await send(ws, {"type": "register_result", "success": False, "message": "Le mot de passe doit contenir au moins 10 caractères."})
         return
     if password != confirmation:
         await send(ws, {"type": "register_result", "success": False, "message": "Les mots de passe ne correspondent pas."})
@@ -407,7 +439,11 @@ async def handle_register(ws, data):
 
 
 async def handle_login(ws, data):
-    login = str(data.get("login", "")).strip()
+    ip = _remote_key(ws)
+    login = str(data.get("login", "")).strip().lower()[:255]
+    if not _rate_limit(login_attempts, ip + ":" + login, MAX_LOGIN_ATTEMPTS, LOGIN_WINDOW_SECONDS):
+        await send(ws, {"type": "login_result", "success": False, "message": "Trop de tentatives. Réessayez dans quelques minutes."})
+        return
     password = str(data.get("password", ""))
     conn = db_connect()
     try:
@@ -438,10 +474,14 @@ async def handle_login(ws, data):
 async def setup_match(room, player1, player2, ws1, ws2, mode="matchmaking"):
     room["players"][1] = player1
     room["players"][2] = player2
+    token1 = secrets.token_urlsafe(32)
+    token2 = secrets.token_urlsafe(32)
+    room["session_tokens"][1] = hashlib.sha256(token1.encode()).hexdigest()
+    room["session_tokens"][2] = hashlib.sha256(token2.encode()).hexdigest()
     room["turn"] = room["starter"]
     rooms[room["room"]] = room
-    await send(ws1, {"type": "match_found" if mode == "matchmaking" else "direct_match", "room": room["room"], "player": 1, "session_token": secrets.token_urlsafe(32), "message": "🎮 Adversaire trouvé ! Le match va commencer."})
-    await send(ws2, {"type": "match_found" if mode == "matchmaking" else "direct_match", "room": room["room"], "player": 2, "session_token": secrets.token_urlsafe(32), "message": "🎮 Match trouvé ! La partie va commencer."})
+    await send(ws1, {"type": "match_found" if mode == "matchmaking" else "direct_match", "room": room["room"], "player": 1, "session_token": token1, "message": "🎮 Adversaire trouvé ! Le match va commencer."})
+    await send(ws2, {"type": "match_found" if mode == "matchmaking" else "direct_match", "room": room["room"], "player": 2, "session_token": token2, "message": "🎮 Match trouvé ! La partie va commencer."})
     await broadcast_state(room)
     await notify_online_players()
 
@@ -474,48 +514,6 @@ async def handle_cancel_match(ws):
     await send(ws, {"type": "searching", "cancelled": True})
 
 
-async def handle_leave(ws, data):
-    """Explicitly leave a room; unlike a network drop, this releases membership."""
-    global waiting
-    pid = clients.get(ws)
-    requested_room = str(data.get("room", "")).strip().upper()
-
-    if waiting is ws:
-        waiting = None
-
-    # Leaving as a spectator only removes this socket from the spectator list.
-    left_spectating = False
-    for room in list(rooms.values()):
-        if ws in room["spectators"] and (not requested_room or room["room"] == requested_room):
-            room["spectators"].discard(ws)
-            await broadcast_state(room)
-            left_spectating = True
-
-    room = rooms.get(requested_room) if requested_room else room_for_player(pid) if pid else None
-    if room and pid:
-        num = room_player_number(room, pid)
-        if num in (1, 2):
-            other = 2 if num == 1 else 1
-            opponent_id = room["players"].get(other)
-
-            # Explicitly leaving an active game forfeits it for the remaining player.
-            # Clear the leaver's slot afterwards so they can join/create another match.
-            if not room["game_over"] and opponent_id:
-                await finish_game(room, other, abandonment=True)
-
-            room["players"][num] = None
-            room["rematch_request"] = None
-            room["undo_request"] = None
-            await broadcast_state(room)
-
-            # Remove an empty room so it cannot linger forever.
-            if not any(room["players"].values()) and not room["spectators"]:
-                rooms.pop(room["room"], None)
-
-    await send(ws, {"type": "left", "room": requested_room or (room["room"] if room else None), "success": True})
-    await notify_online_players()
-
-
 async def handle_create(ws):
     pid = clients.get(ws)
     if not pid:
@@ -527,8 +525,10 @@ async def handle_create(ws):
     code = new_room_code()
     room = fresh_room(code)
     room["players"][1] = pid
+    token = secrets.token_urlsafe(32)
+    room["session_tokens"][1] = hashlib.sha256(token.encode()).hexdigest()
     rooms[code] = room
-    await send(ws, {"type": "created", "room": code, "player": 1, "session_token": secrets.token_urlsafe(32)})
+    await send(ws, {"type": "created", "room": code, "player": 1, "session_token": token})
     await broadcast_state(room)
     await notify_online_players()
 
@@ -550,7 +550,9 @@ async def handle_join(ws, data):
         await send_error(ws, "Vous êtes déjà le joueur 1.")
         return
     room["players"][2] = pid
-    await send(ws, {"type": "joined", "room": code, "player": 2, "session_token": secrets.token_urlsafe(32)})
+    token = secrets.token_urlsafe(32)
+    room["session_tokens"][2] = hashlib.sha256(token.encode()).hexdigest()
+    await send(ws, {"type": "joined", "room": code, "player": 2, "session_token": token})
     await broadcast_state(room)
     await notify_online_players()
 
@@ -688,11 +690,11 @@ async def handle_undo_response(ws, data):
     pid = clients.get(ws)
     room = rooms.get(str(data.get("room", "")).strip().upper())
     accepted = bool(data.get("accepted"))
-    if not room or not pid or room["undo_request"] is None:
+    if not room or not pid or room["game_over"] or room["undo_request"] is None:
         return
     requester = room["undo_request"]
     responder = room_player_number(room, pid)
-    if responder == requester:
+    if responder not in (1, 2) or responder == requester:
         return
     if accepted and room["history"]:
         last = room["history"].pop()
@@ -740,10 +742,10 @@ async def handle_reset(ws, data):
     # Kept for compatibility with the existing index. Treat it as an accepted next-game reset.
     pid = clients.get(ws)
     room = rooms.get(str(data.get("room", "")).strip().upper())
-    if not room or not pid:
+    if not room or not pid or room_player_number(room, pid) not in (1, 2):
         return
-    if room["game_over"]:
-        await start_next_game(room)
+    # Reset is only allowed after both players accept a rematch via the protocol.
+    await send_error(ws, "Utilisez rematch_request/rematch_response pour recommencer.")
 
 
 async def handle_reconnect(ws, data):
@@ -756,12 +758,17 @@ async def handle_reconnect(ws, data):
     if not room or not pid or not token:
         await send_error(ws, "Reconnexion impossible.")
         return
-    # Existing frontend stores an in-memory token. For this protocol, accepting a valid player/room pair is enough.
-    if pid not in room["players"].values():
+    # Require the per-player secret token. Never authorize reconnect using player ID alone.
+    num = room_player_number(room, pid)
+    if num not in (1, 2):
         await send_error(ws, "Vous n'êtes pas dans cette partie.")
         return
+    stored_hash = room.get("session_tokens", {}).get(num)
+    supplied_hash = hashlib.sha256(str(token).encode()).hexdigest()
+    if not stored_hash or not secrets.compare_digest(stored_hash, supplied_hash):
+        await send_error(ws, "Jeton de reconnexion invalide.")
+        return
     await authenticate(ws, pid)
-    num = room_player_number(room, pid)
     await send(ws, {"type": "reconnected", "room": room["room"], "player": num, "session_token": token})
     await broadcast_state(room)
 
@@ -769,39 +776,43 @@ async def handle_reconnect(ws, data):
 async def disconnect_player(ws):
     global waiting
     pid = clients.pop(ws, None)
+    if not pid:
+        return
+    if connections.get(pid) is ws:
+        connections.pop(pid, None)
+    players_online.discard(pid)
     if waiting is ws:
         waiting = None
 
-    # Always remove this socket from spectator lists.
+    # Remove spectator membership.
     for room in list(rooms.values()):
         if ws in room["spectators"]:
             room["spectators"].discard(ws)
             await broadcast_state(room)
 
-    if not pid:
-        return
-
-    # A replaced/older socket must not disconnect the player's newer session.
-    is_current_connection = connections.get(pid) is ws
-    if is_current_connection:
-        connections.pop(pid, None)
-        players_online.discard(pid)
-
-        # A temporary network drop is NOT an explicit leave or a forfeit.
-        # Keep room membership so the same player can reconnect to the active game.
-        room = room_for_player(pid)
-        if room:
-            await broadcast_state(room)
-        await notify_online_players()
+    room = room_for_player(pid)
+    if room and not room["game_over"]:
+        num = room_player_number(room, pid)
+        if num in (1, 2):
+            other = 2 if num == 1 else 1
+            if room["players"].get(other):
+                await finish_game(room, other, abandonment=True)
+    await notify_online_players()
 
 
 async def handler(ws):
     try:
         async for raw in ws:
+            if not isinstance(raw, str) or len(raw.encode("utf-8", errors="ignore")) > MAX_MESSAGE_BYTES:
+                await send_error(ws, "Message trop volumineux.")
+                continue
             try:
                 data = json.loads(raw)
             except Exception:
                 await send_error(ws, "Message invalide.")
+                continue
+            if not isinstance(data, dict):
+                await send_error(ws, "Format de message invalide.")
                 continue
             typ = data.get("type")
             try:
@@ -810,8 +821,6 @@ async def handler(ws):
                 elif typ == "online_players": await send(ws, {"type": "online_players", "players": available_online_players(clients.get(ws))})
                 elif typ == "find_match": await handle_find_match(ws)
                 elif typ == "cancel_match": await handle_cancel_match(ws)
-                elif typ in ("leave", "leave_match", "leave_room"):
-                    await handle_leave(ws, data)
                 elif typ == "create": await handle_create(ws)
                 elif typ == "join": await handle_join(ws, data)
                 elif typ == "live_matches": await handle_live_matches(ws)
@@ -862,8 +871,10 @@ async def timer_loop():
 
 async def main():
     init_db()
-    print(f"MR JERY MOPION server listening on {HOST}:{PORT}")
-    async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20, max_size=2**20):
+    print(f"MR JERY MORPION secure server listening on {HOST}:{PORT}")
+    async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20,
+                                max_size=MAX_MESSAGE_BYTES, origins=None,
+                                process_request=None):
         await timer_loop()
 
 
