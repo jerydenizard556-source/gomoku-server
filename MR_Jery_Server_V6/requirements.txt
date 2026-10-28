@@ -1,2 +1,2 @@
-fastapi
-uvicorn[standard]
+websockets==15.0.1
+psycopg2-binary==2.9.10
