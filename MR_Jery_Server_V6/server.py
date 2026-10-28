@@ -374,6 +374,20 @@ async def invite_response(ws, invitation_id, accepted):
     await send(inviter,{'type':'direct_match','room':c,'player':1,'session_token':t1,'message':'🎮 Invitation acceptée !'}); await send(invitee,{'type':'direct_match','room':c,'player':2,'session_token':t2,'message':'🎮 Invitation acceptée !'})
     await broadcast(r)
 
+async def leave_match(ws, c):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return await send(ws,{'type':'leave_match_result','success':True})
+    r=rooms[c]; n=find(r,ws)
+    if n is None: return await send(ws,{'type':'leave_match_result','success':True})
+    if not r.get('game_over') and len(r.get('players',{}))==2:
+        other=2 if n==1 else 1
+        r['game_over']=True; r['winner']=other; r['draw']=False; r['abandonment']=True
+        r['winning_line']=None; r['rematch_request']=None; r['undo_request']=None
+        r['black_score']+=int(other==1); r['red_score']+=int(other==2)
+        await record_result(r)
+        await broadcast(r)
+    await send(ws,{'type':'leave_match_result','success':True,'room':c})
+
 async def undo_request(ws, c):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -403,6 +417,7 @@ async def handler(ws):
                 elif t=='online_players':await online_players(ws)
                 elif t=='invite_player':await invite_player(ws,d.get('target_player_id'),d.get('duration_minutes',5),d.get('board_size',15))
                 elif t=='invite_response':await invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
+                elif t=='leave_match':await leave_match(ws,d.get('room'))
                 elif t=='undo_request':await undo_request(ws,d.get('room'))
                 elif t=='undo_response':await undo_response(ws,d.get('room'),bool(d.get('accepted',False)))
                 elif t=='register':await register(ws,d.get('username'),d.get('email'),d.get('password'),d.get('password_confirmation'))
