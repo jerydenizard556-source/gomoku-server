@@ -1,6 +1,6 @@
 import asyncio,json,secrets,string,time,os,hashlib,hmac,re
 import websockets, psycopg2
-HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600
+HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
 DATABASE_URL=os.environ.get('DATABASE_URL'); db=None
 if DATABASE_URL:
     try:
@@ -73,6 +73,13 @@ def find(r,ws):
     for n,p in r['players'].items():
         if p.get('socket') is ws:return n
     return None
+
+def active_room_for(ws):
+    for room_code, room in rooms.items():
+        if find(room, ws) is not None and not room.get('game_over'):
+            return room_code
+    return None
+
 def remove_spec(ws):
     for r in rooms.values(): r['spectators'].discard(ws)
 def level_for_points(points): return 1 + max(0,int(points or 0)//30)
@@ -124,8 +131,14 @@ async def broadcast(r):
         if p.get('socket'): await send(p['socket'],s)
     for ws in list(r['spectators']): await send(ws,s)
 async def create(ws, size=BOARD_SIZE, duration=START_TIME):
+    existing=active_room_for(ws)
+    if existing: return await send(ws,{'type':'error','message':'Ou deja nan yon match. Kite oswa fini match sa anvan.'})
+    remove_spec(ws)
     c=code();rooms[c]=room_base(max(13,min(20,int(size or BOARD_SIZE))),max(60,min(1800,int(duration or START_TIME))));r=rooms[c];t=session();r['players'][1]={'socket':ws,'connected':True,'session_token':t,'username':username(ws,'Joueur 1'),'player_id':connected_accounts.get(ws,{}).get('player_id')};await send(ws,{'type':'created','room':c,'player':1,'session_token':t,'username':r['players'][1]['username']});await broadcast(r)
 async def join(ws,c):
+    existing=active_room_for(ws)
+    if existing: return await send(ws,{'type':'error','message':'Ou deja nan yon match. Kite oswa fini match sa anvan.'})
+    remove_spec(ws)
     c=str(c or '').upper().strip();
     if c not in rooms:return await send(ws,{'type':'error','message':'Room introuvable.'})
     r=rooms[c]
@@ -133,6 +146,8 @@ async def join(ws,c):
         return await send(ws,{'type':'error','message':'Room sa deja gen 2 jwè. Chwazi Spectateur.'})
     t=session();r['players'][2]={'socket':ws,'connected':True,'session_token':t,'username':username(ws,'Joueur 2'),'player_id':connected_accounts.get(ws,{}).get('player_id')};await send(ws,{'type':'joined','room':c,'player':2,'session_token':t,'username':r['players'][2]['username']});await broadcast(r)
 async def find_match(ws):
+    existing=active_room_for(ws)
+    if existing: return await send(ws,{'type':'error','message':'Ou deja nan yon match.'})
     remove_spec(ws);queue[:]=[x for x in queue if x is not ws]
     if queue:
         a=queue.pop(0);c=code();r=room_base();rooms[c]=r
@@ -142,6 +157,7 @@ async def find_match(ws):
 async def cancel(ws):
     queue[:]=[x for x in queue if x is not ws];await send(ws,{'type':'match_cancelled'})
 async def watch(ws,c):
+    if active_room_for(ws): return await send(ws,{'type':'watch_error','success':False,'message':'Ou deja ap jwe yon match.'})
     c=str(c or '').upper().strip()
     if c not in rooms:return await send(ws,{'type':'watch_error','success':False,'message':'Match sa pa egziste.'})
     remove_spec(ws);r=rooms[c];r['spectators'].add(ws);await send(ws,{'type':'watching','room':c,'spectator':True});await broadcast(r)
@@ -156,7 +172,14 @@ async def reconnect(ws,c,n,t):
     try:n=int(n)
     except:return
     if c not in rooms or n not in rooms[c]['players'] or rooms[c]['players'][n].get('session_token')!=t:return await send(ws,{'type':'error','message':'Session token invalid.'})
-    r=rooms[c];remove_spec(ws);r['players'][n]['socket']=ws;r['players'][n]['connected']=True;await send(ws,{'type':'reconnected','room':c,'player':n,'session_token':t,'username':r['players'][n]['username']});await broadcast(r)
+    r=rooms[c];remove_spec(ws)
+    # If the same player reconnects from a new socket, invalidate the old socket's room membership.
+    old_socket=r['players'][n].get('socket')
+    if old_socket is not None and old_socket is not ws:
+        try: await send(old_socket,{'type':'session_replaced','message':'Kont sa a konekte sou yon lòt koneksyon.'})
+        except Exception: pass
+    r['players'][n]['socket']=ws;r['players'][n]['connected']=True;r['players'][n].pop('disconnected_at',None);r['players'][n].pop('disconnect_marker',None)
+    await send(ws,{'type':'reconnected','room':c,'player':n,'session_token':t,'username':r['players'][n]['username']});await broadcast(r)
 async def move(ws,c,rr,cc):
     c=str(c or '').upper().strip()
     if c not in rooms:return
@@ -219,20 +242,48 @@ async def reset(ws,c):
     r=rooms[c];n=find(r,ws)
     if n is None or not r['game_over']:return
     r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None;r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];await broadcast(r)
+async def abandon_if_disconnected(room_code, player_number, marker):
+    """Only forfeit after a reconnect grace period, not on a brief network drop."""
+    await asyncio.sleep(RECONNECT_GRACE_SECONDS)
+    r=rooms.get(room_code)
+    if not r or r.get('game_over'):
+        return
+    p=r.get('players',{}).get(player_number,{})
+    if p.get('connected') or p.get('disconnect_marker') != marker or p.get('socket') is not None:
+        return
+    if len(r.get('players',{})) < 2:
+        return
+    other=2 if player_number==1 else 1
+    if not r.get('players',{}).get(other,{}).get('connected'):
+        return
+    r['game_over']=True; r['winner']=other; r['draw']=False; r['abandonment']=True
+    r['winning_line']=None; r['rematch_request']=None; r['undo_request']=None
+    r['black_score']+=int(other==1); r['red_score']+=int(other==2)
+    await record_result(r)
+    await broadcast(r)
+
 async def disconnect(ws):
     queue[:]=[x for x in queue if x is not ws]
     for iid,inv in list(invitations.items()):
-        if inv.get('from_ws') is ws or inv.get('to_ws') is ws: invitations.pop(iid,None)
-    connected_accounts.pop(ws,None);remove_spec(ws)
-    for c,r in list(rooms.items()):
+        if inv.get('from_ws') is ws or inv.get('to_ws') is ws:
+            invitations.pop(iid,None)
+    connected_accounts.pop(ws,None)
+    remove_spec(ws)
+    for room_code,r in list(rooms.items()):
         n=find(r,ws)
-        if n is not None:
-            r['players'][n]['connected']=False;r['players'][n]['socket']=None
-            if not r['game_over'] and len(r['players'])==2 and any(p.get('connected') for p in r['players'].values()):
-                other=2 if n==1 else 1;r['game_over']=True;r['winner']=other;r['draw']=False;r['abandonment']=True;r['winning_line']=None;r['rematch_request']=None
-                r['black_score']+=other==1;r['red_score']+=other==2
-                await record_result(r)
-            await broadcast(r);return
+        if n is None:
+            continue
+        p=r['players'][n]
+        # A replaced socket must not mark the newer connection as disconnected.
+        if p.get('socket') is not ws:
+            continue
+        p['connected']=False; p['socket']=None
+        marker=secrets.token_urlsafe(12)
+        p['disconnected_at']=time.monotonic(); p['disconnect_marker']=marker
+        await broadcast(r)
+        if not r.get('game_over') and len(r.get('players',{}))==2:
+            asyncio.create_task(abandon_if_disconnected(room_code,n,marker))
+
 async def timer_loop():
     while True:
         await asyncio.sleep(1)
@@ -281,9 +332,13 @@ async def online_players(ws):
 invitations={}
 async def invite_player(ws, target_id, duration, size):
     acct=connected_accounts.get(ws)
+    if active_room_for(ws): return await send(ws,{'type':'invite_result','success':False,'message':'Fini oswa kite match ou ye a anvan ou envite yon lòt jwè.'})
     if not acct: return await send(ws,{'type':'invite_result','success':False,'message':'Connecte-toi pour inviter un joueur.'})
     try: target_id=int(target_id); duration=max(1,min(30,int(duration))); size=max(13,min(20,int(size)))
     except: return await send(ws,{'type':'invite_result','success':False,'message':'Paramètres de défi invalides.'})
+    now=time.monotonic()
+    for old_id,old_inv in list(invitations.items()):
+        if now-old_inv.get('created',0)>INVITATION_TTL_SECONDS: invitations.pop(old_id,None)
     target_ws=None
     for client,a in connected_accounts.items():
         if a.get('player_id')==target_id and client is not ws: target_ws=client; break
@@ -300,12 +355,18 @@ async def invite_response(ws, invitation_id, accepted):
     inv=invitations.pop(str(invitation_id or ''),None)
     if not inv or inv.get('to_ws') is not ws:
         return await send(ws,{'type':'invite_result','success':False,'message':'Invitation expirée ou invalide.'})
+    if time.monotonic()-inv.get('created',0)>INVITATION_TTL_SECONDS:
+        await send(inv.get('from_ws'),{'type':'invite_result','success':False,'message':'Envitasyon an ekspire.'})
+        return await send(ws,{'type':'invite_result','success':False,'message':'Envitasyon an ekspire.'})
     inviter=inv['from_ws']; invitee=ws
     if not accepted:
         await send(inviter,{'type':'invite_result','success':True,'message':username(ws,'Adversaire')+' a refusé le match.'})
         return await send(ws,{'type':'invite_result','success':True,'message':'Invitation refusée.'})
     if inviter not in connected_accounts or invitee not in connected_accounts:
         return await send(ws,{'type':'invite_result','success':False,'message':'Un joueur s’est déconnecté.'})
+    if active_room_for(inviter) or active_room_for(invitee):
+        await send(inviter,{'type':'invite_result','success':False,'message':'Youn nan jwè yo deja nan yon match.'})
+        return await send(invitee,{'type':'invite_result','success':False,'message':'Youn nan jwè yo deja nan yon match.'})
     c=code(); r=room_base(inv['size'],inv['duration']); rooms[c]=r
     p1=connected_accounts[inviter]; p2=connected_accounts[invitee]; t1=session(); t2=session()
     r['players']={1:{'socket':inviter,'connected':True,'session_token':t1,'username':p1['username'],'player_id':p1['player_id']},2:{'socket':invitee,'connected':True,'session_token':t2,'username':p2['username'],'player_id':p2['player_id']}}
@@ -334,35 +395,44 @@ async def handler(ws):
         async for raw in ws:
             try:d=json.loads(raw)
             except: await send(ws,{'type':'error','message':'JSON invalid.'});continue
-            t=d.get('type')
-            if t=='restore_session':await restore_session(ws,d.get('account_token'))
-            elif t=='logout_session':await logout_session(ws,d.get('account_token'))
-            elif t=='online_players':await online_players(ws)
-            elif t=='invite_player':await invite_player(ws,d.get('target_player_id'),d.get('duration_minutes',5),d.get('board_size',15))
-            elif t=='invite_response':await invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
-            elif t=='undo_request':await undo_request(ws,d.get('room'))
-            elif t=='undo_response':await undo_response(ws,d.get('room'),bool(d.get('accepted',False)))
-            elif t=='register':await register(ws,d.get('username'),d.get('email'),d.get('password'),d.get('password_confirmation'))
-            elif t=='login':await login(ws,d.get('login'),d.get('password'))
-            elif t=='create':await create(ws,d.get('board_size',BOARD_SIZE),int(d.get('duration_minutes',10) or 10)*60)
-            elif t=='join':await join(ws,d.get('room',d.get('room_code',d.get('code'))))
-            elif t in ('watch','spectate'):await watch(ws,d.get('room',d.get('room_code',d.get('code'))))
-            elif t in ('stop_watching','leave_spectator'):remove_spec(ws);await send(ws,{'type':'watch_stopped'})
-            elif t=='live_matches':await live(ws)
-            elif t=='rooms_list':await rooms_list(ws)
-            elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
-            elif t=='find_match':await find_match(ws)
-            elif t=='cancel_match':await cancel(ws)
-            elif t=='reconnect':await reconnect(ws,d.get('room'),d.get('player'),d.get('session_token'))
-            elif t=='move':await move(ws,d.get('room'),d.get('row'),d.get('col'))
-            elif t=='rematch_request':await rematch_req(ws,d.get('room'))
-            elif t=='rematch_response':await rematch_resp(ws,d.get('room'),bool(d.get('accepted',d.get('accept',False))))
-            elif t=='reset':await reset(ws,d.get('room'))
-            else:await send(ws,{'type':'error','message':'Type de message inconnu.'})
+            try:
+                t=d.get('type')
+                if t=='restore_session':await restore_session(ws,d.get('account_token'))
+                elif t=='logout_session':await logout_session(ws,d.get('account_token'))
+                elif t=='online_players':await online_players(ws)
+                elif t=='invite_player':await invite_player(ws,d.get('target_player_id'),d.get('duration_minutes',5),d.get('board_size',15))
+                elif t=='invite_response':await invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
+                elif t=='undo_request':await undo_request(ws,d.get('room'))
+                elif t=='undo_response':await undo_response(ws,d.get('room'),bool(d.get('accepted',False)))
+                elif t=='register':await register(ws,d.get('username'),d.get('email'),d.get('password'),d.get('password_confirmation'))
+                elif t=='login':await login(ws,d.get('login'),d.get('password'))
+                elif t=='create':
+                    try: duration_seconds=max(60,min(1800,int(d.get('duration_minutes',10) or 10)*60))
+                    except (TypeError,ValueError): duration_seconds=START_TIME
+                    try: requested_size=max(13,min(20,int(d.get('board_size',BOARD_SIZE) or BOARD_SIZE)))
+                    except (TypeError,ValueError): requested_size=BOARD_SIZE
+                    await create(ws,requested_size,duration_seconds)
+                elif t=='join':await join(ws,d.get('room',d.get('room_code',d.get('code'))))
+                elif t in ('watch','spectate'):await watch(ws,d.get('room',d.get('room_code',d.get('code'))))
+                elif t in ('stop_watching','leave_spectator'):remove_spec(ws);await send(ws,{'type':'watch_stopped'})
+                elif t=='live_matches':await live(ws)
+                elif t=='rooms_list':await rooms_list(ws)
+                elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
+                elif t=='find_match':await find_match(ws)
+                elif t=='cancel_match':await cancel(ws)
+                elif t=='reconnect':await reconnect(ws,d.get('room'),d.get('player'),d.get('session_token'))
+                elif t=='move':await move(ws,d.get('room'),d.get('row'),d.get('col'))
+                elif t=='rematch_request':await rematch_req(ws,d.get('room'))
+                elif t=='rematch_response':await rematch_resp(ws,d.get('room'),bool(d.get('accepted',d.get('accept',False))))
+                elif t=='reset':await reset(ws,d.get('room'))
+                else:await send(ws,{'type':'error','message':'Type de message inconnu.'})
+            except Exception as ex:
+                print('Mesaj kliyan pa valab:',repr(ex))
+                await send(ws,{'type':'error','message':'Mesaj la pa valab. Verifye done yo epi eseye ankò.'})
     except websockets.exceptions.ConnectionClosed:pass
     except Exception as e:print('Erreur client:',repr(e))
     finally:await disconnect(ws)
 async def main():
     print(f'Serveur Gomoku lancé sur {HOST}:{PORT}');asyncio.create_task(timer_loop())
-    async with websockets.serve(handler,HOST,PORT,ping_interval=20,ping_timeout=20):print('WebSocket server prêt.');await asyncio.Future()
+    async with websockets.serve(handler,HOST,PORT,ping_interval=20,ping_timeout=20,max_size=1_000_000):print('WebSocket server prêt.');await asyncio.Future()
 if __name__=='__main__':asyncio.run(main())
