@@ -56,6 +56,14 @@ def init_db():
                 )
             """)
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS player_sessions (
+                    token_hash TEXT PRIMARY KEY,
+                    player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS player_stats (
                     player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
                     points INTEGER NOT NULL DEFAULT 0,
@@ -144,22 +152,28 @@ def new_room_code():
             return code
 
 
-def blank_board():
-    return [[0 for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+def blank_board(size=BOARD_SIZE):
+    size = max(13, min(20, int(size)))
+    return [[0 for _ in range(size)] for _ in range(size)]
 
 
-def fresh_room(code):
+def fresh_room(code, board_size=20, duration_minutes=10):
+    board_size = max(13, min(20, int(board_size)))
+    duration_minutes = max(1, min(30, int(duration_minutes)))
+    seconds = duration_minutes * 60
     return {
         "room": code,
-        "board": blank_board(),
+        "board_size": board_size,
+        "duration_minutes": duration_minutes,
+        "board": blank_board(board_size),
         "players": {1: None, 2: None},
         "session_tokens": {1: None, 2: None},
         "spectators": set(),
         "turn": 1,
         "starter": 1,
         "game_number": 1,
-        "black_time": START_TIME,
-        "red_time": START_TIME,
+        "black_time": seconds,
+        "red_time": seconds,
         "black_score": 0,
         "red_score": 0,
         "winner": None,
@@ -250,6 +264,8 @@ def public_state(room):
     return {
         "type": "state",
         "room": room["room"],
+        "board_size": room.get("board_size", BOARD_SIZE),
+        "duration_minutes": room.get("duration_minutes", START_TIME // 60),
         "board": room["board"],
         "players": players,
         "turn": room["turn"],
@@ -285,7 +301,7 @@ def line_for_win(board, row, col, value):
             while True:
                 rr += dr * sign
                 cc += dc * sign
-                if not (0 <= rr < BOARD_SIZE and 0 <= cc < BOARD_SIZE):
+                if not (0 <= rr < len(board) and 0 <= cc < len(board)) :
                     break
                 if board[rr][cc] != value:
                     break
@@ -335,9 +351,10 @@ async def start_next_game(room):
     room["starter"] = 2 if room["starter"] == 1 else 1
     room["turn"] = room["starter"]
     room["game_number"] += 1
-    room["board"] = blank_board()
-    room["black_time"] = START_TIME
-    room["red_time"] = START_TIME
+    room["board"] = blank_board(room.get("board_size", BOARD_SIZE))
+    seconds = int(room.get("duration_minutes", START_TIME // 60)) * 60
+    room["black_time"] = seconds
+    room["red_time"] = seconds
     room["winner"] = None
     room["game_over"] = False
     room["draw"] = False
@@ -387,6 +404,54 @@ def _remote_key(ws):
         return "unknown"
 
 
+def issue_account_token(player_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    conn = db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM player_sessions WHERE expires_at <= CURRENT_TIMESTAMP")
+            cur.execute("INSERT INTO player_sessions(token_hash, player_id, expires_at) VALUES(%s,%s,CURRENT_TIMESTAMP + INTERVAL '30 days')", (token_hash, player_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return token
+
+
+async def handle_restore_session(ws, data):
+    token = str(data.get("account_token", ""))
+    if not token or len(token) > 200:
+        await send(ws, {"type": "restore_session_result", "success": False})
+        return
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    conn = db_connect()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT p.id,p.username,p.email FROM player_sessions s JOIN players p ON p.id=s.player_id WHERE s.token_hash=%s AND s.expires_at>CURRENT_TIMESTAMP", (token_hash,))
+            player = cur.fetchone()
+    finally:
+        conn.close()
+    if not player:
+        await send(ws, {"type": "restore_session_result", "success": False})
+        return
+    await authenticate(ws, int(player["id"]))
+    await send(ws, {"type": "restore_session_result", "success": True, "player_id": int(player["id"]), "username": player["username"], "email": player["email"], "account_token": token, "stats": get_stats(int(player["id"]))})
+
+
+async def handle_logout_session(ws, data):
+    token = str(data.get("account_token", ""))
+    pid = clients.get(ws)
+    if token and pid:
+        conn = db_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM player_sessions WHERE token_hash=%s AND player_id=%s", (hashlib.sha256(token.encode()).hexdigest(), pid))
+            conn.commit()
+        finally:
+            conn.close()
+    await send(ws, {"type": "logout_session_result", "success": True})
+
+
 async def handle_register(ws, data):
     ip = _remote_key(ws)
     if not _rate_limit(register_attempts, ip, MAX_REGISTER_ATTEMPTS, REGISTER_WINDOW_SECONDS):
@@ -424,7 +489,7 @@ async def handle_register(ws, data):
     finally:
         conn.close()
 
-    token = secrets.token_urlsafe(32)
+    token = issue_account_token(player_id)
     await authenticate(ws, player_id)
     await send(ws, {
         "type": "register_result",
@@ -457,7 +522,7 @@ async def handle_login(ws, data):
         await send(ws, {"type": "login_result", "success": False, "message": "Identifiants incorrects."})
         return
 
-    token = secrets.token_urlsafe(32)
+    token = issue_account_token(int(player["id"]))
     await authenticate(ws, int(player["id"]))
     await send(ws, {
         "type": "login_result",
@@ -600,8 +665,13 @@ async def handle_invite_player(ws, data):
         return
     sid = secrets.token_urlsafe(12)
     sender_player = get_player(sender)
-    invites[sid] = {"sender": sender, "target": target, "created": time.time()}
-    await send(target_ws, {"type": "game_invite", "invitation_id": sid, "from_player_id": sender, "from_username": sender_player["username"] if sender_player else "Joueur"})
+    try:
+        duration = max(1, min(30, int(data.get("duration_minutes", 5))))
+        board_size = max(13, min(20, int(data.get("board_size", 15))))
+    except (TypeError, ValueError):
+        duration, board_size = 5, 15
+    invites[sid] = {"sender": sender, "target": target, "created": time.time(), "duration_minutes": duration, "board_size": board_size}
+    await send(target_ws, {"type": "game_invite", "invitation_id": sid, "from_player_id": sender, "from_username": sender_player["username"] if sender_player else "Joueur", "duration_minutes": duration, "board_size": board_size})
     await send(ws, {"type": "invite_result", "success": True, "message": "🎮 Invitation envoyée."})
 
 
@@ -622,7 +692,7 @@ async def handle_invite_response(ws, data):
     if not sender_ws:
         await send(ws, {"type": "invite_result", "success": False, "message": "Le joueur n'est plus connecté."})
         return
-    room = fresh_room(new_room_code())
+    room = fresh_room(new_room_code(), inv.get("board_size", 15), inv.get("duration_minutes", 5))
     await setup_match(room, sender, target, sender_ws, ws, "direct")
 
 
@@ -647,7 +717,8 @@ async def handle_move(ws, data):
         col = int(data.get("col"))
     except Exception:
         return
-    if not (0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE):
+    board_size = len(room["board"])
+    if not (0 <= row < board_size and 0 <= col < board_size):
         return
     if room["board"][row][col] != 0:
         return
@@ -818,6 +889,8 @@ async def handler(ws):
             try:
                 if typ == "register": await handle_register(ws, data)
                 elif typ == "login": await handle_login(ws, data)
+                elif typ == "restore_session": await handle_restore_session(ws, data)
+                elif typ == "logout_session": await handle_logout_session(ws, data)
                 elif typ == "online_players": await send(ws, {"type": "online_players", "players": available_online_players(clients.get(ws))})
                 elif typ == "find_match": await handle_find_match(ws)
                 elif typ == "cancel_match": await handle_cancel_match(ws)
