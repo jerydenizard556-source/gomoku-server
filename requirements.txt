@@ -1,2 +1,2 @@
-websockets==15.0.1
-psycopg2-binary==2.9.10
+websockets>=13,<16
+psycopg2-binary>=2.9,<3
