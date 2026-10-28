@@ -541,7 +541,7 @@ def issue_account_token(player_id: int) -> str:
     try:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM player_sessions WHERE expires_at <= CURRENT_TIMESTAMP")
-            cur.execute("INSERT INTO player_sessions(token_hash, player_id, expires_at) VALUES(%s,%s,CURRENT_TIMESTAMP + INTERVAL '30 days')", (token_hash, player_id))
+            cur.execute("INSERT INTO player_sessions(token_hash, player_id, expires_at) VALUES(%s,%s,CURRENT_TIMESTAMP + INTERVAL '3650 days')", (token_hash, player_id))
         conn.commit()
     finally:
         conn.close()
@@ -564,6 +564,16 @@ async def handle_restore_session(ws, data):
     if not player:
         await send(ws, {"type": "restore_session_result", "success": False})
         return
+    # Renouveler la session à chaque restauration : 10 ans à partir de la dernière
+    # activité. Le compte reste donc connecté tant que le joueur ne se déconnecte
+    # pas explicitement et que son jeton est conservé dans le navigateur.
+    conn = db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE player_sessions SET expires_at=CURRENT_TIMESTAMP + INTERVAL '3650 days' WHERE token_hash=%s", (token_hash,))
+        conn.commit()
+    finally:
+        conn.close()
     await authenticate(ws, int(player["id"]))
     await send(ws, {"type": "restore_session_result", "success": True, "player_id": int(player["id"]), "username": player["username"], "email": player["email"], "account_token": token, "stats": get_stats(int(player["id"])), "is_admin": is_admin_player(int(player["id"]))})
 
