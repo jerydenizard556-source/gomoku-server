@@ -340,9 +340,12 @@ async def invite_player(ws, target_id, duration, size):
     now=time.monotonic()
     for old_id,old_inv in list(invitations.items()):
         if now-old_inv.get('created',0)>INVITATION_TTL_SECONDS: invitations.pop(old_id,None)
+    # Si menm kont lan gen plizyè koneksyon (plizyè onglet/navigatè),
+    # voye envitasyon an bay dènye WebSocket ki konekte a, pa premye ansyen an.
     target_ws=None
-    for client,a in connected_accounts.items():
-        if a.get('player_id')==target_id and client is not ws: target_ws=client; break
+    for client,a in list(connected_accounts.items()):
+        if a.get('player_id')==target_id and client is not ws:
+            target_ws=client
     if not target_ws: return await send(ws,{'type':'invite_result','success':False,'message':'Ce joueur n’est plus connecté.'})
     for r in rooms.values():
         if any(p.get('player_id')==target_id and not r.get('game_over') for p in r['players'].values()):
