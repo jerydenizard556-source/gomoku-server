@@ -19,6 +19,8 @@ BOARD_SIZE = 20
 START_TIME = 10 * 60
 TICK = 1
 DATABASE_URL = os.getenv("DATABASE_URL")
+# Admin identity is configured in Render Environment Variables, never in this source file.
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 
 rooms = {}
 waiting = None
@@ -71,6 +73,25 @@ def init_db():
                     losses INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS rank_settings (
+                    rank_key VARCHAR(32) PRIMARY KEY,
+                    title VARCHAR(40) NOT NULL,
+                    sigle VARCHAR(8) NOT NULL,
+                    min_wins INTEGER NOT NULL CHECK (min_wins >= 0),
+                    sort_order INTEGER NOT NULL UNIQUE
+                )
+            """)
+            defaults = [
+                ("debutant", "Débutant", "DÉB", 0, 1),
+                ("intermediaire", "Intermédiaire", "INT", 5, 2),
+                ("avance", "Avancé", "AV", 15, 3),
+                ("expert", "Expert", "EXP", 30, 4),
+                ("master", "Master", "MST", 60, 5),
+            ]
+            cur.execute("SELECT COUNT(*) FROM rank_settings")
+            if cur.fetchone()[0] == 0:
+                cur.executemany("INSERT INTO rank_settings(rank_key,title,sigle,min_wins,sort_order) VALUES(%s,%s,%s,%s,%s)", defaults)
         conn.commit()
     finally:
         conn.close()
@@ -103,6 +124,44 @@ def get_player(player_id: int):
         conn.close()
 
 
+DEFAULT_RANKS = [
+    {"key": "debutant", "title": "Débutant", "sigle": "DÉB", "min_wins": 0, "sort_order": 1},
+    {"key": "intermediaire", "title": "Intermédiaire", "sigle": "INT", "min_wins": 5, "sort_order": 2},
+    {"key": "avance", "title": "Avancé", "sigle": "AV", "min_wins": 15, "sort_order": 3},
+    {"key": "expert", "title": "Expert", "sigle": "EXP", "min_wins": 30, "sort_order": 4},
+    {"key": "master", "title": "Master", "sigle": "MST", "min_wins": 60, "sort_order": 5},
+]
+
+
+def get_rank_settings():
+    conn = db_connect()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT rank_key AS key, title, sigle, min_wins, sort_order FROM rank_settings ORDER BY sort_order")
+            rows = [dict(r) for r in cur.fetchall()]
+        return rows or [dict(r) for r in DEFAULT_RANKS]
+    finally:
+        conn.close()
+
+
+def rank_for_wins(wins):
+    wins = max(0, int(wins or 0))
+    ranks = get_rank_settings()
+    selected = ranks[0]
+    for rank in ranks:
+        if wins >= int(rank["min_wins"]):
+            selected = rank
+        else:
+            break
+    next_rank = next((r for r in ranks if int(r["min_wins"]) > wins), None)
+    return {
+        "rank": selected["title"], "rank_title": selected["title"],
+        "rank_sigle": selected["sigle"], "rank_key": selected["key"],
+        "wins": wins, "wins_to_next_rank": (int(next_rank["min_wins"]) - wins) if next_rank else 0,
+        "next_rank": next_rank["title"] if next_rank else None,
+    }
+
+
 def get_stats(player_id: int):
     conn = db_connect()
     try:
@@ -114,9 +173,70 @@ def get_stats(player_id: int):
             cur.execute("SELECT points, wins, losses FROM player_stats WHERE player_id=%s", (player_id,))
             row = cur.fetchone()
         conn.commit()
-        return dict(row) if row else {"points": 0, "wins": 0, "losses": 0}
+        stats = dict(row) if row else {"points": 0, "wins": 0, "losses": 0}
+        stats.update(rank_for_wins(stats.get("wins", 0)))
+        return stats
     finally:
         conn.close()
+
+
+def is_admin_player(player_id):
+    if not ADMIN_EMAIL or not player_id:
+        return False
+    conn = db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM players WHERE id=%s AND lower(email)=lower(%s)", (player_id, ADMIN_EMAIL))
+            return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+async def handle_get_rank_settings(ws):
+    pid = clients.get(ws)
+    await send(ws, {"type": "rank_settings", "success": True, "ranks": get_rank_settings(), "is_admin": is_admin_player(pid)})
+
+
+async def handle_update_rank_settings(ws, data):
+    pid = clients.get(ws)
+    if not pid or not is_admin_player(pid):
+        await send(ws, {"type": "rank_settings_updated", "success": False, "message": "Accès refusé : espace réservé à l’administrateur."})
+        return
+    incoming = data.get("ranks")
+    if not isinstance(incoming, list) or len(incoming) < 2 or len(incoming) > 30:
+        await send(ws, {"type": "rank_settings_updated", "success": False, "message": "La liste des niveaux doit contenir entre 2 et 30 niveaux."})
+        return
+    cleaned = []
+    seen = set()
+    try:
+        for i, item in enumerate(incoming, 1):
+            key = re.sub(r"[^a-z0-9_]+", "_", str(item.get("key", "")).lower()).strip("_")[:32]
+            title = str(item.get("title", "")).strip()[:40]
+            sigle = str(item.get("sigle", "")).strip()[:8]
+            min_wins = int(item.get("min_wins"))
+            if not key or key in seen or not title or not sigle or min_wins < 0:
+                raise ValueError
+            seen.add(key)
+            cleaned.append({"key": key, "title": title, "sigle": sigle, "min_wins": min_wins, "sort_order": i})
+        if cleaned[0]["min_wins"] != 0:
+            raise ValueError
+        if any(cleaned[i]["min_wins"] >= cleaned[i+1]["min_wins"] for i in range(len(cleaned)-1)):
+            raise ValueError
+    except (TypeError, ValueError, AttributeError):
+        await send(ws, {"type": "rank_settings_updated", "success": False, "message": "Niveaux invalides : le premier doit commencer à 0 et les victoires doivent augmenter à chaque niveau."})
+        return
+    conn = db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM rank_settings")
+            cur.executemany("INSERT INTO rank_settings(rank_key,title,sigle,min_wins,sort_order) VALUES(%s,%s,%s,%s,%s)", [(r["key"],r["title"],r["sigle"],r["min_wins"],r["sort_order"]) for r in cleaned])
+        conn.commit()
+    finally:
+        conn.close()
+    await send(ws, {"type": "rank_settings_updated", "success": True, "message": "Les niveaux ont été enregistrés.", "ranks": get_rank_settings()})
+    # Notify every active match so both opponents and spectators see current rank labels.
+    for room in list(rooms.values()):
+        await broadcast_state(room)
 
 
 def update_stats(player_id: int, win: bool):
@@ -196,8 +316,15 @@ def player_payload(player_id, connected=True):
         return None
     p = get_player(player_id)
     if not p:
-        return {"player_id": player_id, "username": "Joueur", "connected": connected}
-    return {"player_id": p["id"], "username": p["username"], "name": p["username"], "connected": connected}
+        return {"player_id": player_id, "username": "Joueur", "connected": connected, "rank": "Débutant", "rank_title": "Débutant", "rank_sigle": "DÉB", "wins": 0}
+    stats = get_stats(player_id)
+    return {
+        "player_id": p["id"], "username": p["username"], "name": p["username"],
+        "connected": connected, "wins": stats.get("wins", 0), "rank": stats["rank"],
+        "rank_title": stats["rank_title"], "rank_sigle": stats["rank_sigle"],
+        "rank_key": stats["rank_key"], "wins_to_next_rank": stats["wins_to_next_rank"],
+        "next_rank": stats["next_rank"], "is_admin": is_admin_player(player_id),
+    }
 
 
 def room_player_number(room, player_id):
@@ -228,6 +355,9 @@ def available_online_players(exclude_id=None):
             "username": p["username"],
             "name": p["username"],
             "in_game": bool(room and room["players"].get(1) and room["players"].get(2)),
+            "wins": get_stats(pid).get("wins", 0),
+            "rank": get_stats(pid).get("rank", "Débutant"),
+            "rank_sigle": get_stats(pid).get("rank_sigle", "DÉB"),
         })
     result.sort(key=lambda x: x["username"].lower())
     return result
@@ -435,7 +565,7 @@ async def handle_restore_session(ws, data):
         await send(ws, {"type": "restore_session_result", "success": False})
         return
     await authenticate(ws, int(player["id"]))
-    await send(ws, {"type": "restore_session_result", "success": True, "player_id": int(player["id"]), "username": player["username"], "email": player["email"], "account_token": token, "stats": get_stats(int(player["id"]))})
+    await send(ws, {"type": "restore_session_result", "success": True, "player_id": int(player["id"]), "username": player["username"], "email": player["email"], "account_token": token, "stats": get_stats(int(player["id"])), "is_admin": is_admin_player(int(player["id"]))})
 
 
 async def handle_logout_session(ws, data):
@@ -500,6 +630,7 @@ async def handle_register(ws, data):
         "email": email,
         "account_token": token,
         "stats": get_stats(player_id),
+        "is_admin": is_admin_player(player_id),
     })
 
 
@@ -533,6 +664,7 @@ async def handle_login(ws, data):
         "email": player["email"],
         "account_token": token,
         "stats": get_stats(int(player["id"])),
+        "is_admin": is_admin_player(int(player["id"])),
     })
 
 
@@ -891,6 +1023,8 @@ async def handler(ws):
                 elif typ == "login": await handle_login(ws, data)
                 elif typ == "restore_session": await handle_restore_session(ws, data)
                 elif typ == "logout_session": await handle_logout_session(ws, data)
+                elif typ in ("get_rank_settings", "rank_settings_get"): await handle_get_rank_settings(ws)
+                elif typ in ("update_rank_settings", "admin_update_ranks"): await handle_update_rank_settings(ws, data)
                 elif typ == "online_players": await send(ws, {"type": "online_players", "players": available_online_players(clients.get(ws))})
                 elif typ == "find_match": await handle_find_match(ws)
                 elif typ == "cancel_match": await handle_cancel_match(ws)
