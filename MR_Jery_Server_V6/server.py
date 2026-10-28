@@ -229,6 +229,49 @@ async def chat(ws,c,message):
     item={'sender':sender,'role':'spectator' if is_spec else 'player','text':msg,'time':int(time.time())}
     r.setdefault('chat',[]).append(item); r['chat']=r['chat'][-80:]
     await broadcast(r)
+async def voice_join(ws, c):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
+    if n is None and not is_spec: return
+    peers=[]
+    for pn, player in r['players'].items():
+        other=player.get('socket')
+        if other is not None and other is not ws:
+            peers.append({'peer_id':str(id(other))})
+    for other in list(r['spectators']):
+        if other is not ws:
+            peers.append({'peer_id':str(id(other))})
+    await send(ws,{'type':'voice_peer_list','room':c,'peers':peers})
+    for peer in list(r['players'].values()):
+        other=peer.get('socket')
+        if other is not None and other is not ws:
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
+    for other in list(r['spectators']):
+        if other is not ws:
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
+
+async def voice_signal(ws, c, to, signal_type, payload):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
+    if n is None and not is_spec: return
+    signal_type=str(signal_type or '')
+    if signal_type not in ('description','ice'): return
+    try: target_id=int(to)
+    except (TypeError,ValueError): return
+    targets=[]
+    for player in r['players'].values():
+        other=player.get('socket')
+        if other is not None and other is not ws and id(other)==target_id: targets.append(other)
+    for other in list(r['spectators']):
+        if other is not ws and id(other)==target_id: targets.append(other)
+    if not targets: return
+    safe_payload=payload if isinstance(payload,dict) else {}
+    # Payload size cap prevents signaling messages from becoming a general data channel.
+    if len(json.dumps(safe_payload))>12000: return
+    await send(targets[0],{'type':'voice_signal','room':c,'from_id':str(id(ws)),'signal_type':signal_type,'payload':safe_payload})
+
 async def rooms_list(ws):
     out=[]
     for c,r in rooms.items():
@@ -437,6 +480,8 @@ async def handler(ws):
                 elif t=='live_matches':await live(ws)
                 elif t=='rooms_list':await rooms_list(ws)
                 elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
+                elif t=='voice_join':await voice_join(ws,d.get('room'))
+                elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
                 elif t=='find_match':await find_match(ws)
                 elif t=='cancel_match':await cancel(ws)
                 elif t=='reconnect':await reconnect(ws,d.get('room'),d.get('player'),d.get('session_token'))
