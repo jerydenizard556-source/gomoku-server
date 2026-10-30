@@ -272,6 +272,90 @@ async def voice_signal(ws, c, to, signal_type, payload):
     if len(json.dumps(safe_payload))>12000: return
     await send(targets[0],{'type':'voice_signal','room':c,'from_id':str(id(ws)),'signal_type':signal_type,'payload':safe_payload})
 
+
+# ---------------- MORPION 3x3 ----------------
+ttt_rooms={}
+ttt_invitations={}
+def ttt_find_room(ws):
+    for rc,room in ttt_rooms.items():
+        if ws in room.get('players',[]) and room.get('status')!='finished': return rc,room
+    return None,None
+async def ttt_send_state(rc):
+    room=ttt_rooms.get(rc)
+    if not room:return
+    payload={'type':'ttt_state','room':rc,'board':room['board'],'turn':room['turn'],'status':room['status'],'winner':room.get('winner'),'players':room['names']}
+    for player in list(room['players']): await send(player,payload)
+async def ttt_online_players(ws):
+    me=connected_accounts.get(ws,{}).get('player_id'); players={}
+    for client,acct in list(connected_accounts.items()):
+        pid=acct.get('player_id')
+        if not pid or pid==me:continue
+        rc,room=ttt_find_room(client)
+        players[pid]={'player_id':pid,'username':acct.get('username','Joueur'),'in_game':bool(rc)}
+    await send(ws,{'type':'ttt_online_players','players':list(players.values())})
+async def ttt_invite(ws,target_id):
+    acct=connected_accounts.get(ws)
+    if not acct:return await send(ws,{'type':'ttt_error','message':'Konekte sou kont ou anvan ou envite.'})
+    if ttt_find_room(ws)[0]:return await send(ws,{'type':'ttt_error','message':'Ou deja nan yon match 3×3.'})
+    try:target_id=int(target_id)
+    except:return await send(ws,{'type':'ttt_error','message':'Jwè sa a pa valid.'})
+    target=next((c for c,a in connected_accounts.items() if a.get('player_id')==target_id and c is not ws),None)
+    if not target:return await send(ws,{'type':'ttt_error','message':'Jwè a pa konekte ankò.'})
+    if ttt_find_room(target)[0]:return await send(ws,{'type':'ttt_error','message':'Jwè sa deja nan yon match 3×3.'})
+    iid=secrets.token_urlsafe(12);ttt_invitations[iid]={'from_ws':ws,'to_ws':target,'from':acct,'created':time.monotonic()}
+    await send(target,{'type':'ttt_game_invite','invitation_id':iid,'from_username':acct.get('username','Joueur')})
+    await send(ws,{'type':'ttt_invite_result','success':True,'message':'Envitasyon an voye.'})
+async def ttt_invite_response(ws,iid,accepted):
+    inv=ttt_invitations.pop(str(iid or ''),None)
+    if not inv or inv.get('to_ws') is not ws:return await send(ws,{'type':'ttt_error','message':'Envitasyon an ekspire oswa pa valid.'})
+    a=inv['from_ws'];b=ws
+    if time.monotonic()-inv['created']>90 or a not in connected_accounts:return await send(ws,{'type':'ttt_error','message':'Envitasyon an ekspire.'})
+    if not accepted:
+        await send(a,{'type':'ttt_invite_result','message':username(ws,'Jwè a')+' refize envitasyon an.'});return await send(ws,{'type':'ttt_invite_result','message':'Ou refize envitasyon an.'})
+    if ttt_find_room(a)[0] or ttt_find_room(b)[0]:return await send(a,{'type':'ttt_error','message':'Youn nan jwè yo deja nan match.'})
+    rc=code();names={'X':username(a,'Jwè X'),'O':username(b,'Jwè O')};room={'players':[a,b],'names':names,'board':['']*9,'turn':'X','status':'playing','winner':None,'voice_peers':set()};ttt_rooms[rc]=room
+    await send(a,{'type':'ttt_match_started','room':rc,'player':'X','board':room['board'],'turn':'X','status':'playing'})
+    await send(b,{'type':'ttt_match_started','room':rc,'player':'O','board':room['board'],'turn':'X','status':'playing'})
+    await ttt_send_state(rc)
+async def ttt_create(ws):
+    if not connected_accounts.get(ws):return await send(ws,{'type':'ttt_error','message':'Konekte anvan ou kreye chanm.'})
+    if ttt_find_room(ws)[0]:return await send(ws,{'type':'ttt_error','message':'Ou deja nan yon match.'})
+    rc=code();room={'players':[ws],'names':{'X':username(ws,'Jwè X')},'board':['']*9,'turn':'X','status':'waiting','winner':None,'voice_peers':set()};ttt_rooms[rc]=room
+    await send(ws,{'type':'ttt_created','room':rc,'player':'X','message':'Chanm kreye. Pataje kòd la.'})
+async def ttt_join(ws,rc):
+    rc=str(rc or '').upper().strip();room=ttt_rooms.get(rc)
+    if not room or room['status']!='waiting' or len(room['players'])!=1:return await send(ws,{'type':'ttt_error','message':'Chanm nan pa disponib.'})
+    if not connected_accounts.get(ws):return await send(ws,{'type':'ttt_error','message':'Konekte anvan ou antre nan chanm.'})
+    if ttt_find_room(ws)[0]:return await send(ws,{'type':'ttt_error','message':'Ou deja nan yon match.'})
+    room['players'].append(ws);room['names']['O']=username(ws,'Jwè O');room['status']='playing'
+    await send(ws,{'type':'ttt_joined','room':rc,'player':'O','message':'Ou antre nan match la.'});await ttt_send_state(rc)
+async def ttt_move(ws,rc,index):
+    rc=str(rc or '').upper().strip();room=ttt_rooms.get(rc)
+    if not room or room['status']!='playing' or ws not in room['players']:return
+    try:i=int(index)
+    except:return
+    if not 0<=i<9 or room['board'][i] or room['players'][0 if room['turn']=='X' else 1] is not ws:return
+    mark=room['turn'];room['board'][i]=mark
+    wins=[(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
+    line=next((x for x in wins if all(room['board'][k]==mark for k in x)),None)
+    if line:room['status']='finished';room['winner']=mark
+    elif all(room['board']):room['status']='finished';room['winner']='draw'
+    else:room['turn']='O' if mark=='X' else 'X'
+    await ttt_send_state(rc)
+async def ttt_voice_join(ws,rc):
+    rc=str(rc or '').upper().strip();room=ttt_rooms.get(rc)
+    if not room or ws not in room['players']:return
+    other=next((p for p in room['players'] if p is not ws),None)
+    if other:
+        await send(ws,{'type':'ttt_voice_peer_list','room':rc,'peers':[{'peer_id':str(id(other))}]})
+        await send(other,{'type':'ttt_voice_peer_join','room':rc,'peer_id':str(id(ws))})
+async def ttt_voice_signal(ws,rc,to,signal_type,payload):
+    rc=str(rc or '').upper().strip();room=ttt_rooms.get(rc)
+    if not room or ws not in room['players'] or signal_type not in ('description','ice'):return
+    other=next((p for p in room['players'] if p is not ws and str(id(p))==str(to)),None)
+    if other and isinstance(payload,dict) and len(json.dumps(payload))<12000:
+        await send(other,{'type':'ttt_voice_signal','room':rc,'from_id':str(id(ws)),'signal_type':signal_type,'payload':payload})
+
 async def rooms_list(ws):
     out=[]
     for c,r in rooms.items():
@@ -308,16 +392,12 @@ async def abandon_if_disconnected(room_code, player_number, marker):
 
 async def disconnect(ws):
     for iid,inv in list(ttt_invitations.items()):
-        if inv.get('from_ws') is ws or inv.get('to_ws') is ws:
-            ttt_invitations.pop(iid,None)
-            other=inv.get('to_ws') if inv.get('from_ws') is ws else inv.get('from_ws')
-            if other is not ws: await send(other,{'type':'ttt_invite_result','message':'Envitasyon an anile paske jwè a dekonekte.'})
-    for code,r in list(ttt_rooms.items()):
-        player=next((k for k,v in r.get('sockets',{}).items() if v is ws),None)
-        if player:
-            other=next((v for v in r.get('sockets',{}).values() if v is not ws),None)
-            if other: await send(other,{'type':'ttt_error','message':'Advèsè a dekonekte. Match 3×3 la fini.'})
-            ttt_rooms.pop(code,None)
+        if inv.get('from_ws') is ws or inv.get('to_ws') is ws: ttt_invitations.pop(iid,None)
+    for rc,room in list(ttt_rooms.items()):
+        if ws in room.get('players',[]):
+            other=next((p for p in room['players'] if p is not ws),None)
+            if other: await send(other,{'type':'ttt_error','message':'Advèsè a dekonekte.'})
+            ttt_rooms.pop(rc,None)
     queue[:]=[x for x in queue if x is not ws]
     for iid,inv in list(invitations.items()):
         if inv.get('from_ws') is ws or inv.get('to_ws') is ws:
@@ -462,95 +542,6 @@ async def undo_response(ws, c, accepted):
         old=r['move_history'].pop(); r['board']=old['board']; r['turn']=old['turn']; r['last_move']=old['last_move']; r['last_move_was_win']=old['last_move_was_win']; r['winning_line']=old['winning_line']; r['game_over']=old['game_over']; r['winner']=old['winner']; r['draw']=old['draw']; r['stats_recorded']=False
     r['undo_request']=None; r['last_timer_update']=time.monotonic(); await broadcast(r)
 
-# --- Morpion 3x3 isolé du moteur Gomoku 20x20 ---
-ttt_rooms = {}
-ttt_invitations = {}
-def ttt_room_for(ws):
-    return next((r for r in ttt_rooms.values() if ws in r.get("sockets", {}).values() and r.get("status") != "finished"), None)
-async def ttt_online_players(ws):
-    acct=connected_accounts.get(ws)
-    if not acct: return await send(ws,{"type":"ttt_error","message":"Konekte sou kont MR_Jery ou anvan."})
-    busy={pid for r in ttt_rooms.values() if r.get("status") in ("waiting","playing") for pid in r.get("ids",{}).values()}
-    rows=[]
-    for client,a in list(connected_accounts.items()):
-        pid=a.get("player_id")
-        if pid and pid!=acct.get("player_id"):
-            rows.append({"player_id":pid,"username":a.get("username","Joueur"),"in_game":pid in busy})
-    await send(ws,{"type":"ttt_online_players","players":rows})
-async def ttt_invite_player(ws,target_id):
-    acct=connected_accounts.get(ws)
-    if not acct: return await send(ws,{"type":"ttt_invite_result","success":False,"message":"Konekte sou kont ou anvan."})
-    if ttt_room_for(ws): return await send(ws,{"type":"ttt_invite_result","success":False,"message":"Ou deja nan yon match 3×3."})
-    target=None
-    for client,a in list(connected_accounts.items()):
-        if str(a.get("player_id"))==str(target_id): target=client; break
-    if not target or target is ws or ttt_room_for(target): return await send(ws,{"type":"ttt_invite_result","success":False,"message":"Jwè sa a pa disponib."})
-    iid=secrets.token_urlsafe(18); ttt_invitations[iid]={"from_ws":ws,"to_ws":target,"from":acct,"expires":time.monotonic()+90}
-    await send(target,{"type":"ttt_game_invite","invitation_id":iid,"from_username":acct.get("username","Joueur")})
-    await send(ws,{"type":"ttt_invite_result","success":True,"message":"Envitasyon an voye. W ap tann repons."})
-async def ttt_invite_response(ws,iid,accepted):
-    inv=ttt_invitations.pop(str(iid or ""),None)
-    if not inv or inv.get("to_ws") is not ws or time.monotonic()>inv.get("expires",0): return await send(ws,{"type":"ttt_error","message":"Envitasyon sa a ekspire oswa pa valab."})
-    a,b=inv["from_ws"],inv["to_ws"]
-    if not accepted:
-        await send(a,{"type":"ttt_invite_result","message":"Jwè a refize envitasyon an."}); return await send(ws,{"type":"ttt_invite_result","message":"Ou refize envitasyon an."})
-    aa=connected_accounts.get(a); bb=connected_accounts.get(b)
-    if not aa or not bb or ttt_room_for(a) or ttt_room_for(b): return await send(a,{"type":"ttt_invite_result","message":"Match la pa kapab kòmanse; youn nan jwè yo pa disponib."})
-    code=ttt_code(); room={"code":code,"board":[""]*9,"turn":"X","players":{"X":aa["username"],"O":bb["username"]},"ids":{"X":aa["player_id"],"O":bb["player_id"]},"sockets":{"X":a,"O":b},"status":"playing","winner":None}; ttt_rooms[code]=room
-    await send(a,{"type":"ttt_match_started","room":code,"player":"X","board":room["board"],"turn":"X"}); await send(b,{"type":"ttt_match_started","room":code,"player":"O","board":room["board"],"turn":"X"}); await ttt_send_state(room)
-async def ttt_voice_join(ws,code):
-    r=ttt_rooms.get(str(code or "").upper()); player=next((k for k,v in (r or {}).get("sockets",{}).items() if v is ws),None)
-    if not r or not player or r.get("status")!="playing": return
-    other=next((v for v in r["sockets"].values() if v is not ws),None)
-    peers=[{"peer_id":str(id(other))}] if other else []
-    await send(ws,{"type":"ttt_voice_peer_list","room":r["code"],"peers":peers})
-    if other: await send(other,{"type":"ttt_voice_peer_join","room":r["code"],"peer_id":str(id(ws))})
-async def ttt_voice_signal(ws,code,to,signal_type,payload):
-    r=ttt_rooms.get(str(code or "").upper()); player=next((k for k,v in (r or {}).get("sockets",{}).items() if v is ws),None)
-    if not r or not player or signal_type not in ("description","ice"): return
-    target=next((v for v in r["sockets"].values() if v is not ws and str(id(v))==str(to)),None)
-    safe=payload if isinstance(payload,dict) else {}
-    if target and len(json.dumps(safe))<=12000: await send(target,{"type":"ttt_voice_signal","room":r["code"],"from_id":str(id(ws)),"signal_type":signal_type,"payload":safe})
-def ttt_code():
-    while True:
-        value=''.join(secrets.choice(string.ascii_uppercase+string.digits) for _ in range(6))
-        if value not in ttt_rooms: return value
-def ttt_state(room):
-    return {'type':'ttt_state','room':room['code'],'board':room['board'],'turn':room['turn'],'players':room['players'],'status':room['status'],'winner':room['winner']}
-async def ttt_send_state(room):
-    payload=ttt_state(room)
-    for sock in list(room['sockets'].values()): await send(sock,payload)
-async def ttt_create(ws):
-    account=connected_accounts.get(ws)
-    if not account: return await send(ws,{'type':'ttt_error','message':'Konekte sou kont ou pou jwe anliy.'})
-    code=ttt_code(); room={'code':code,'board':['']*9,'turn':'X','players':{'X':account['username']},'ids':{'X':account['player_id']},'sockets':{'X':ws},'status':'waiting','winner':None}
-    ttt_rooms[code]=room; await send(ws,{'type':'ttt_created','room':code,'player':'X','message':'Chanm kreye. Voye kòd la bay zanmi ou.'})
-async def ttt_join(ws,code_value):
-    account=connected_accounts.get(ws)
-    if not account: return await send(ws,{'type':'ttt_error','message':'Konekte sou kont ou pou jwe anliy.'})
-    room=ttt_rooms.get(str(code_value or '').strip().upper())
-    if not room: return await send(ws,{'type':'ttt_error','message':'Kòd chanm nan pa egziste.'})
-    if room['status']!='waiting' or account['player_id'] in room['ids'].values(): return await send(ws,{'type':'ttt_error','message':'Chanm sa a pa disponib.'})
-    room['players']['O']=account['username']; room['ids']['O']=account['player_id']; room['sockets']['O']=ws; room['status']='playing'
-    await send(ws,{'type':'ttt_joined','room':room['code'],'player':'O'}); await send(room['sockets']['X'],{'type':'ttt_opponent_joined','room':room['code']}); await ttt_send_state(room)
-def ttt_winner(board):
-    for a,b,c in ((0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)):
-        if board[a] and board[a]==board[b]==board[c]: return board[a]
-    return None
-async def ttt_move(ws,code_value,index):
-    room=ttt_rooms.get(str(code_value or '').upper()); account=connected_accounts.get(ws)
-    if not room or not account: return await send(ws,{'type':'ttt_error','message':'Chanm oswa kont pa disponib.'})
-    player=next((k for k,v in room['sockets'].items() if v is ws),None)
-    if room['status']!='playing' or not player or player!=room['turn']: return await send(ws,{'type':'ttt_error','message':'Kou sa a pa legal.'})
-    try: i=int(index)
-    except (TypeError,ValueError): return await send(ws,{'type':'ttt_error','message':'Kare sa a pa valab.'})
-    if not 0<=i<9 or room['board'][i] != '': return await send(ws,{'type':'ttt_error','message':'Kare sa a deja okipe.'})
-    room['board'][i]=player; win=ttt_winner(room['board'])
-    if win: room['status']='finished'; room['winner']=win
-    elif all(room['board']): room['status']='finished'; room['winner']='draw'
-    else: room['turn']='O' if player=='X' else 'X'
-    await ttt_send_state(room)
-
 async def handler(ws):
     try:
         async for raw in ws:
@@ -558,15 +549,7 @@ async def handler(ws):
             except: await send(ws,{'type':'error','message':'JSON invalid.'});continue
             try:
                 t=d.get('type')
-                if t=='ttt_online_players': await ttt_online_players(ws)
-                elif t=='ttt_invite_player': await ttt_invite_player(ws,d.get('target_player_id'))
-                elif t=='ttt_invite_response': await ttt_invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
-                elif t=='ttt_voice_join': await ttt_voice_join(ws,d.get('room'))
-                elif t=='ttt_voice_signal': await ttt_voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
-                elif t=='ttt_create': await ttt_create(ws)
-                elif t=='ttt_join': await ttt_join(ws,d.get('room'))
-                elif t=='ttt_move': await ttt_move(ws,d.get('room'),d.get('index'))
-                elif t=='restore_session':await restore_session(ws,d.get('account_token'))
+                if t=='restore_session':await restore_session(ws,d.get('account_token'))
                 elif t=='logout_session':await logout_session(ws,d.get('account_token'))
                 elif t=='online_players':await online_players(ws)
                 elif t=='invite_player':await invite_player(ws,d.get('target_player_id'),d.get('duration_minutes',5),d.get('board_size',15))
@@ -590,6 +573,14 @@ async def handler(ws):
                 elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
                 elif t=='voice_join':await voice_join(ws,d.get('room'))
                 elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
+                elif t=='ttt_online_players':await ttt_online_players(ws)
+                elif t=='ttt_invite_player':await ttt_invite(ws,d.get('target_player_id'))
+                elif t=='ttt_invite_response':await ttt_invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
+                elif t=='ttt_create':await ttt_create(ws)
+                elif t=='ttt_join':await ttt_join(ws,d.get('room'))
+                elif t=='ttt_move':await ttt_move(ws,d.get('room'),d.get('index',d.get('cell')))
+                elif t=='ttt_voice_join':await ttt_voice_join(ws,d.get('room'))
+                elif t=='ttt_voice_signal':await ttt_voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
                 elif t=='find_match':await find_match(ws)
                 elif t=='cancel_match':await cancel(ws)
                 elif t=='reconnect':await reconnect(ws,d.get('room'),d.get('player'),d.get('session_token'))
