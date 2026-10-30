@@ -1,6 +1,5 @@
 import asyncio,json,secrets,string,time,os,hashlib,hmac,re
 import websockets, psycopg2
-from websockets.http11 import Headers, Response
 HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
 DATABASE_URL=os.environ.get('DATABASE_URL'); db=None
 if DATABASE_URL:
@@ -57,7 +56,7 @@ async def login(ws,l,p):
         if not row or not verify_password(p,row[3]): return await send(ws,{'type':'login_result','success':False,'message':'Pseudo/email oswa password la pa kòrèk.'})
         t=secrets.token_urlsafe(32); set_account(ws,row[0],row[1],row[2],t); await send(ws,{'type':'login_result','success':True,'message':'Login reyisi.','player_id':row[0],'username':row[1],'email':row[2],'account_token':t,'points':row[4] or 0,'wins':row[5] or 0,'losses':row[6] or 0,'draws':row[7] or 0,'level':1+int((row[4] or 0)//30)})
     except Exception as ex: print('Login error:',repr(ex)); await send(ws,{'type':'login_result','success':False,'message':'Erè pandan login.'})
-rooms={}; queue=[]
+rooms={}; queue=[]; voice_connections={}
 def code():
     while True:
         x=''.join(secrets.choice(string.ascii_uppercase+string.digits) for _ in range(6))
@@ -206,8 +205,7 @@ async def rematch_req(ws,c):
     if c not in rooms:return
     r=rooms[c];n=find(r,ws)
     if n is None or not r['game_over'] or r['rematch_request'] is not None:return
-    # requester must be the loser, unless draw (either player may request)
-    if not r['draw'] and r['winner']==n:return
+    # Nenpòt nan 2 jwè yo ka mande revanj/rematch.
     r['rematch_request']=n;r['last_timer_update']=time.monotonic();await broadcast(r)
 async def rematch_resp(ws,c,accepted):
     c=str(c or '').upper().strip();
@@ -216,7 +214,7 @@ async def rematch_resp(ws,c,accepted):
     if n is None or q is None or n==q:return
     if accepted:
         r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None
-    r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];r['last_timer_update']=time.monotonic();await broadcast(r)
+    r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['last_timer_update']=time.monotonic();await broadcast(r)
 async def chat(ws,c,message):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -229,48 +227,52 @@ async def chat(ws,c,message):
     item={'sender':sender,'role':'spectator' if is_spec else 'player','text':msg,'time':int(time.time())}
     r.setdefault('chat',[]).append(item); r['chat']=r['chat'][-80:]
     await broadcast(r)
-async def voice_join(ws, c):
-    c=str(c or '').upper().strip()
-    if c not in rooms: return
-    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
-    if n is None and not is_spec: return
+def voice_room_participants(r):
     peers=[]
-    for pn, player in r['players'].items():
-        other=player.get('socket')
-        if other is not None and other is not ws:
-            peers.append({'peer_id':str(id(other))})
-    for other in list(r['spectators']):
-        if other is not ws:
-            peers.append({'peer_id':str(id(other))})
-    await send(ws,{'type':'voice_peer_list','room':c,'peers':peers})
-    for peer in list(r['players'].values()):
-        other=peer.get('socket')
-        if other is not None and other is not ws:
-            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
-    for other in list(r['spectators']):
-        if other is not ws:
-            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
+    for n,p in r.get('players',{}).items():
+        sock=p.get('socket')
+        if sock and p.get('connected'):
+            info=voice_connections.get(sock)
+            if info: peers.append({'peer_id':info['id'],'role':'player','username':p.get('username',f'Joueur {n}')})
+    for sock in list(r.get('spectators',set())):
+        info=voice_connections.get(sock)
+        if info: peers.append({'peer_id':info['id'],'role':'spectator','username':info.get('username','Spectateur')})
+    return peers
 
-async def voice_signal(ws, c, to, signal_type, payload):
+async def voice_join(ws,c):
     c=str(c or '').upper().strip()
     if c not in rooms: return
-    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r.get('spectators',set())
     if n is None and not is_spec: return
-    signal_type=str(signal_type or '')
-    if signal_type not in ('description','ice'): return
-    try: target_id=int(to)
-    except (TypeError,ValueError): return
-    targets=[]
-    for player in r['players'].values():
-        other=player.get('socket')
-        if other is not None and other is not ws and id(other)==target_id: targets.append(other)
-    for other in list(r['spectators']):
-        if other is not ws and id(other)==target_id: targets.append(other)
-    if not targets: return
-    safe_payload=payload if isinstance(payload,dict) else {}
-    # Payload size cap prevents signaling messages from becoming a general data channel.
-    if len(json.dumps(safe_payload))>12000: return
-    await send(targets[0],{'type':'voice_signal','room':c,'from_id':str(id(ws)),'signal_type':signal_type,'payload':safe_payload})
+    old=voice_connections.get(ws)
+    if old and old.get('room')==c: return
+    if old: await voice_leave(ws)
+    role='spectator' if is_spec else 'player'
+    ident=secrets.token_urlsafe(9)
+    voice_connections[ws]={'id':ident,'room':c,'role':role,'username':username(ws,'Spectateur' if is_spec else f'Joueur {n}')}
+    peers=[x for x in voice_room_participants(r) if x['peer_id']!=ident]
+    await send(ws,{'type':'voice_peer_list','room':c,'peers':peers})
+    for peer in peers:
+        for sock,info in list(voice_connections.items()):
+            if info.get('id')==peer['peer_id']:
+                await send(sock,{'type':'voice_peer_join','room':c,'peer_id':ident,'role':role,'username':voice_connections[ws]['username']})
+                break
+
+async def voice_signal(ws,c,to_id,signal_type,payload):
+    c=str(c or '').upper().strip(); info=voice_connections.get(ws)
+    if c not in rooms or not info or info.get('room')!=c: return
+    # Only relay within this match; no cross-room voice signaling.
+    for peer,peer_info in list(voice_connections.items()):
+        if peer is not ws and peer_info.get('room')==c and (not to_id or peer_info.get('id')==str(to_id)):
+            await send(peer,{'type':'voice_signal','room':c,'from_id':info['id'],'from_role':info['role'],'from_username':info.get('username','Joueur'),'signal_type':str(signal_type or ''),'payload':payload})
+
+async def voice_leave(ws):
+    info=voice_connections.pop(ws,None)
+    if not info:return
+    c=info.get('room'); ident=info.get('id')
+    for peer,peer_info in list(voice_connections.items()):
+        if peer_info.get('room')==c:
+            await send(peer,{'type':'voice_peer_left','room':c,'peer_id':ident})
 
 async def rooms_list(ws):
     out=[]
@@ -285,7 +287,7 @@ async def reset(ws,c):
     if c not in rooms:return
     r=rooms[c];n=find(r,ws)
     if n is None or not r['game_over']:return
-    r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None;r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];await broadcast(r)
+    r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None;r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;await broadcast(r)
 async def abandon_if_disconnected(room_code, player_number, marker):
     """Only forfeit after a reconnect grace period, not on a brief network drop."""
     await asyncio.sleep(RECONNECT_GRACE_SECONDS)
@@ -383,12 +385,9 @@ async def invite_player(ws, target_id, duration, size):
     now=time.monotonic()
     for old_id,old_inv in list(invitations.items()):
         if now-old_inv.get('created',0)>INVITATION_TTL_SECONDS: invitations.pop(old_id,None)
-    # Si menm kont lan gen plizyè koneksyon (plizyè onglet/navigatè),
-    # voye envitasyon an bay dènye WebSocket ki konekte a, pa premye ansyen an.
     target_ws=None
-    for client,a in list(connected_accounts.items()):
-        if a.get('player_id')==target_id and client is not ws:
-            target_ws=client
+    for client,a in connected_accounts.items():
+        if a.get('player_id')==target_id and client is not ws: target_ws=client; break
     if not target_ws: return await send(ws,{'type':'invite_result','success':False,'message':'Ce joueur n’est plus connecté.'})
     for r in rooms.values():
         if any(p.get('player_id')==target_id and not r.get('game_over') for p in r['players'].values()):
@@ -420,20 +419,6 @@ async def invite_response(ws, invitation_id, accepted):
     await send(inviter,{'type':'direct_match','room':c,'player':1,'session_token':t1,'message':'🎮 Invitation acceptée !'}); await send(invitee,{'type':'direct_match','room':c,'player':2,'session_token':t2,'message':'🎮 Invitation acceptée !'})
     await broadcast(r)
 
-async def leave_match(ws, c):
-    c=str(c or '').upper().strip()
-    if c not in rooms: return await send(ws,{'type':'leave_match_result','success':True})
-    r=rooms[c]; n=find(r,ws)
-    if n is None: return await send(ws,{'type':'leave_match_result','success':True})
-    if not r.get('game_over') and len(r.get('players',{}))==2:
-        other=2 if n==1 else 1
-        r['game_over']=True; r['winner']=other; r['draw']=False; r['abandonment']=True
-        r['winning_line']=None; r['rematch_request']=None; r['undo_request']=None
-        r['black_score']+=int(other==1); r['red_score']+=int(other==2)
-        await record_result(r)
-        await broadcast(r)
-    await send(ws,{'type':'leave_match_result','success':True,'room':c})
-
 async def undo_request(ws, c):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -463,7 +448,6 @@ async def handler(ws):
                 elif t=='online_players':await online_players(ws)
                 elif t=='invite_player':await invite_player(ws,d.get('target_player_id'),d.get('duration_minutes',5),d.get('board_size',15))
                 elif t=='invite_response':await invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
-                elif t=='leave_match':await leave_match(ws,d.get('room'))
                 elif t=='undo_request':await undo_request(ws,d.get('room'))
                 elif t=='undo_response':await undo_response(ws,d.get('room'),bool(d.get('accepted',False)))
                 elif t=='register':await register(ws,d.get('username'),d.get('email'),d.get('password'),d.get('password_confirmation'))
@@ -482,6 +466,7 @@ async def handler(ws):
                 elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
                 elif t=='voice_join':await voice_join(ws,d.get('room'))
                 elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
+                elif t=='voice_leave':await voice_leave(ws)
                 elif t=='find_match':await find_match(ws)
                 elif t=='cancel_match':await cancel(ws)
                 elif t=='reconnect':await reconnect(ws,d.get('room'),d.get('player'),d.get('session_token'))
@@ -495,28 +480,10 @@ async def handler(ws):
                 await send(ws,{'type':'error','message':'Mesaj la pa valab. Verifye done yo epi eseye ankò.'})
     except websockets.exceptions.ConnectionClosed:pass
     except Exception as e:print('Erreur client:',repr(e))
-    finally:await disconnect(ws)
-def health_response(connection, request):
-    # Render's health checker may send HEAD/GET to the service URL.
-    # A pure WebSocket listener normally expects GET + Upgrade and logs
-    # HEAD as a failed WebSocket handshake. Intercept normal HTTP probes here.
-    path = request.path.split('?', 1)[0]
-    if path in ('/', '/health', '/healthz') and request.headers.get('Upgrade', '').lower() != 'websocket':
-        body = b'{\"ok\":true,\"service\":\"MR_Jery_Morpion_Game_Server\",\"websocket\":true}'
-        if request.method == 'HEAD':
-            body = b''
-        return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
-    return None
-
+    finally:
+        await voice_leave(ws)
+        await disconnect(ws)
 async def main():
-    print(f'Serveur Gomoku lance sou {HOST}:{PORT}')
-    asyncio.create_task(timer_loop())
-    async with websockets.serve(
-        handler, HOST, PORT,
-        process_request=health_response,
-        ping_interval=20, ping_timeout=20,
-        max_size=1_000_000,
-    ):
-        print('WebSocket server prêt + HTTP health endpoint /health.')
-        await asyncio.Future()
+    print(f'Serveur Gomoku lancé sur {HOST}:{PORT}');asyncio.create_task(timer_loop())
+    async with websockets.serve(handler,HOST,PORT,ping_interval=20,ping_timeout=20,max_size=1_000_000):print('WebSocket server prêt.');await asyncio.Future()
 if __name__=='__main__':asyncio.run(main())
