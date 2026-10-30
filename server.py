@@ -249,7 +249,8 @@ async def voice_join(ws,c):
     if old: await voice_leave(ws)
     role='spectator' if is_spec else 'player'
     ident=secrets.token_urlsafe(9)
-    voice_connections[ws]={'id':ident,'room':c,'role':role,'username':username(ws,'Spectateur' if is_spec else f'Joueur {n}')}
+    display_name=(username(ws,'Spectateur') if is_spec else username(ws,f'Joueur {n}'))
+    voice_connections[ws]={'id':ident,'room':c,'role':role,'username':display_name}
     peers=[x for x in voice_room_participants(r) if x['peer_id']!=ident]
     await send(ws,{'type':'voice_peer_list','room':c,'peers':peers})
     for peer in peers:
@@ -263,7 +264,12 @@ async def voice_signal(ws,c,to_id,signal_type,payload):
     if c not in rooms or not info or info.get('room')!=c: return
     # Only relay within this match; no cross-room voice signaling.
     for peer,peer_info in list(voice_connections.items()):
-        if peer is not ws and peer_info.get('room')==c and (not to_id or peer_info.get('id')==str(to_id)):
+        if peer is ws or peer_info.get('room')!=c:
+            continue
+        # Verify the recipient is still a player or spectator in this exact room.
+        room=rooms.get(c,{})
+        member=find(room,peer) is not None or peer in room.get('spectators',set())
+        if member and (not to_id or peer_info.get('id')==str(to_id)):
             await send(peer,{'type':'voice_signal','room':c,'from_id':info['id'],'from_role':info['role'],'from_username':info.get('username','Joueur'),'signal_type':str(signal_type or ''),'payload':payload})
 
 async def voice_leave(ws):
@@ -419,6 +425,34 @@ async def invite_response(ws, invitation_id, accepted):
     await send(inviter,{'type':'direct_match','room':c,'player':1,'session_token':t1,'message':'🎮 Invitation acceptée !'}); await send(invitee,{'type':'direct_match','room':c,'player':2,'session_token':t2,'message':'🎮 Invitation acceptée !'})
     await broadcast(r)
 
+
+async def leave_match(ws, c):
+    c=str(c or '').upper().strip()
+    await voice_leave(ws)
+    if c not in rooms:
+        return await send(ws,{'type':'leave_match_result','success':True})
+    r=rooms[c]
+    n=find(r,ws)
+    if n is None:
+        return await send(ws,{'type':'leave_match_result','success':True})
+    # Retire proprement le joueur du match terminé pour permettre une nouvelle invitation.
+    player=r['players'].get(n,{})
+    player['connected']=False
+    player['socket']=None
+    r['game_over']=True
+    r['winner']=0
+    r['draw']=False
+    r['abandonment']=True
+    r['rematch_request']=None
+    r['undo_request']=None
+    r['last_timer_update']=time.monotonic()
+    # Invalide les invitations précédentes émises ou reçues par ce socket.
+    for iid, inv in list(invitations.items()):
+        if inv.get('from_ws') is ws or inv.get('to_ws') is ws:
+            invitations.pop(iid,None)
+    await broadcast(r)
+    await send(ws,{'type':'leave_match_result','success':True,'room':c})
+
 async def undo_request(ws, c):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -460,13 +494,15 @@ async def handler(ws):
                     await create(ws,requested_size,duration_seconds)
                 elif t=='join':await join(ws,d.get('room',d.get('room_code',d.get('code'))))
                 elif t in ('watch','spectate'):await watch(ws,d.get('room',d.get('room_code',d.get('code'))))
-                elif t in ('stop_watching','leave_spectator'):remove_spec(ws);await send(ws,{'type':'watch_stopped'})
+                elif t in ('stop_watching','leave_spectator'):await voice_leave(ws);remove_spec(ws);await send(ws,{'type':'watch_stopped'})
                 elif t=='live_matches':await live(ws)
                 elif t=='rooms_list':await rooms_list(ws)
                 elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
                 elif t=='voice_join':await voice_join(ws,d.get('room'))
                 elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
                 elif t=='voice_leave':await voice_leave(ws)
+                elif t=='leave_match':await leave_match(ws,d.get('room'))
+                elif t=='leave_match':await leave_match(ws,d.get('room'))
                 elif t=='find_match':await find_match(ws)
                 elif t=='cancel_match':await cancel(ws)
                 elif t=='reconnect':await reconnect(ws,d.get('room'),d.get('player'),d.get('session_token'))
