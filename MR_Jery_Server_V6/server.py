@@ -369,6 +369,44 @@ async def logout_session(ws, token):
     connected_accounts.pop(ws,None)
     await send(ws,{'type':'logout_result','success':True})
 
+async def leave_match(ws, room_code=None):
+    """End a player's current match immediately when they choose to leave."""
+    room_code=str(room_code or '').upper().strip()
+    if room_code not in rooms:
+        room_code=active_room_for(ws)
+    if not room_code or room_code not in rooms:
+        return await send(ws,{'type':'leave_match_result','success':True})
+    r=rooms[room_code]
+    n=find(r,ws)
+    if n is None:
+        return await send(ws,{'type':'leave_match_result','success':True})
+    p=r['players'][n]
+    # A voluntary exit immediately frees the account and awards the opponent the forfeit.
+    p['connected']=False
+    p['socket']=None
+    p['disconnected_at']=time.monotonic()
+    p['disconnect_marker']=None
+    if not r.get('game_over') and len(r.get('players',{})) == 2:
+        other=2 if n==1 else 1
+        if r['players'].get(other,{}).get('connected'):
+            r['game_over']=True
+            r['winner']=other
+            r['draw']=False
+            r['abandonment']=True
+            r['winning_line']=None
+            r['rematch_request']=None
+            r['undo_request']=None
+            r['black_score']+=int(other==1)
+            r['red_score']+=int(other==2)
+            await record_result(r)
+    await voice_leave(ws)
+    await broadcast(r)
+    await send(ws,{'type':'leave_match_result','success':True,'room':room_code})
+    # Notify connected account views that the player is available again.
+    for client in list(connected_accounts):
+        if client is not ws:
+            await send(client,{'type':'online_players_refresh'})
+
 async def online_players(ws):
     me=connected_accounts.get(ws,{}).get('player_id')
     players={}
@@ -452,6 +490,7 @@ async def handler(ws):
                 if t=='restore_session':await restore_session(ws,d.get('account_token'))
                 elif t=='logout_session':await logout_session(ws,d.get('account_token'))
                 elif t=='online_players':await online_players(ws)
+                elif t=='leave_match':await leave_match(ws,d.get('room'))
                 elif t=='invite_player':await invite_player(ws,d.get('target_player_id'),d.get('duration_minutes',5),d.get('board_size',15))
                 elif t=='invite_response':await invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
                 elif t=='undo_request':await undo_request(ws,d.get('room'))
