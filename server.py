@@ -448,108 +448,99 @@ def admin_me(admin=Depends(require_admin)):
 # PREMIUM REQUEST
 # =====================================================
 
+def get_player_from_account_token(account_token: Optional[str]):
+    """Resolve a real game account from the hashed session token."""
+    if not account_token or len(account_token) < 20:
+        raise HTTPException(401, "Konekte sou kont jwèt ou an avan.")
+    token_hash = hashlib.sha256(account_token.encode()).hexdigest()
+    with get_db() as conn:
+        player = conn.execute("""
+            SELECT p.id, p.username, p.email
+            FROM account_sessions s
+            JOIN players p ON p.id = s.player_id
+            WHERE s.token_hash = %s
+            LIMIT 1
+        """, (token_hash,)).fetchone()
+    if not player:
+        raise HTTPException(401, "Sesyon kont jwèt la pa valab. Rekonekte.")
+    return player
+
+
 @app.post("/premium/request", tags=["Premium"])
 async def premium_request(
-
-    user_id: str = Form(...),
-
-    username: str = Form(""),
-
-    email: str = Form(""),
-
     premium_type: str = Form(...),
-
     payment_method: str = Form(""),
-
     payment_reference: str = Form(""),
-
-    screenshot: UploadFile = File(...)
-
+    screenshot: UploadFile = File(...),
+    x_account_token: Optional[str] = Header(None, alias="X-Account-Token")
 ):
-
-    if not user_id.strip():
-        raise HTTPException(
-            400,
-            "User ID required"
-        )
-
+    # Never trust a user_id/username supplied by the browser. Resolve identity
+    # from the same hashed account session used by the Gomoku game server.
+    player = get_player_from_account_token(x_account_token)
     premium_type = premium_type.strip().lower()
-
-    if premium_type not in [
-        "bronze",
-        "silver",
-        "diamond",
-        "freestyle",
-        "pro",
-        "swap",
-        "all"
-    ]:
-        raise HTTPException(
-            400,
-            "Invalid premium type"
-        )
-
-    if screenshot.content_type not in [
-        "image/jpeg",
-        "image/png",
-        "image/webp"
-    ]:
-        raise HTTPException(
-            400,
-            "Invalid screenshot format"
-        )
-
-    image_data = await screenshot.read(
-        5 * 1024 * 1024 + 1
-    )
-
-    if (
-        not image_data
-        or len(image_data) > 5 * 1024 * 1024
-    ):
-        raise HTTPException(
-            400,
-            "Screenshot must be under 5 MB"
-        )
-
+    if premium_type not in ["bronze", "silver", "diamond", "freestyle", "pro", "swap", "all"]:
+        raise HTTPException(400, "Invalid premium type")
+    if screenshot.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(400, "Invalid screenshot format")
+    image_data = await screenshot.read(5 * 1024 * 1024 + 1)
+    if not image_data or len(image_data) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Screenshot must be under 5 MB")
     request_id = str(uuid.uuid4())
-
     with get_db() as conn:
-
+        pending = conn.execute("""
+            SELECT id FROM premium_requests
+            WHERE user_id = %s AND status = 'pending'
+            ORDER BY created_at DESC LIMIT 1
+        """, (str(player["id"]),)).fetchone()
+        if pending:
+            raise HTTPException(409, "Ou deja gen yon demann Premium k ap tann verifikasyon.")
         conn.execute("""
             INSERT INTO premium_requests (
-                id,
-                user_id,
-                username,
-                premium_type,
-                payment_method,
-                payment_reference,
-                screenshot,
-                screenshot_type,
-                status
-            )
-            VALUES (
-                %s,%s,%s,%s,%s,%s,%s,%s,'pending'
-            )
+                id, user_id, username, premium_type, payment_method,
+                payment_reference, screenshot, screenshot_type, status
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')
         """, (
-            request_id,
-            user_id.strip(),
-            username.strip(),
-            premium_type,
-            payment_method.strip(),
-            payment_reference.strip(),
-            image_data,
+            request_id, str(player["id"]), player["username"], premium_type,
+            payment_method.strip(), payment_reference.strip(), image_data,
             screenshot.content_type
         ))
-
         conn.commit()
+    return {"ok": True, "success": True, "request_id": request_id,
+            "status": "pending", "username": player["username"],
+            "message": "Premium request received"}
 
+
+@app.get("/premium/my-status", tags=["Premium"])
+def premium_my_status(
+    x_account_token: Optional[str] = Header(None, alias="X-Account-Token")
+):
+    player = get_player_from_account_token(x_account_token)
+    user_id = str(player["id"])
+    now = datetime.now(timezone.utc)
+    with get_db() as conn:
+        sub = conn.execute("""
+            SELECT premium_type, active, starts_at, expires_at
+            FROM premium_subscriptions WHERE user_id = %s
+        """, (user_id,)).fetchone()
+        latest = conn.execute("""
+            SELECT id, premium_type, status, admin_note, created_at
+            FROM premium_requests WHERE user_id = %s
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id,)).fetchone()
+    active = bool(sub and sub["active"] and sub["expires_at"] and sub["expires_at"] > now)
     return {
         "ok": True,
-        "success": True,
-        "request_id": request_id,
-        "status": "pending",
-        "message": "Premium request received"
+        "username": player["username"],
+        "premium": active,
+        "premium_type": sub["premium_type"] if active else None,
+        "expires_at": sub["expires_at"].isoformat() if active else None,
+        "latest_request": ({
+            "request_id": str(latest["id"]),
+            "premium_type": latest["premium_type"],
+            "status": latest["status"],
+            "admin_note": latest["admin_note"] or "",
+            "created_at": latest["created_at"].isoformat() if latest["created_at"] else None
+        } if latest else None)
     }
 
 
