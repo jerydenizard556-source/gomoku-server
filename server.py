@@ -1,5 +1,6 @@
 import asyncio,json,secrets,string,time,os,hashlib,hmac,re
 import websockets, psycopg2
+from websockets.http11 import Headers, Response
 HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
 DATABASE_URL=os.environ.get('DATABASE_URL'); db=None
 if DATABASE_URL:
@@ -56,7 +57,7 @@ async def login(ws,l,p):
         if not row or not verify_password(p,row[3]): return await send(ws,{'type':'login_result','success':False,'message':'Pseudo/email oswa password la pa kòrèk.'})
         t=secrets.token_urlsafe(32); set_account(ws,row[0],row[1],row[2],t); await send(ws,{'type':'login_result','success':True,'message':'Login reyisi.','player_id':row[0],'username':row[1],'email':row[2],'account_token':t,'points':row[4] or 0,'wins':row[5] or 0,'losses':row[6] or 0,'draws':row[7] or 0,'level':1+int((row[4] or 0)//30)})
     except Exception as ex: print('Login error:',repr(ex)); await send(ws,{'type':'login_result','success':False,'message':'Erè pandan login.'})
-rooms={}; queue=[]; voice_connections={}
+rooms={}; queue=[]
 def code():
     while True:
         x=''.join(secrets.choice(string.ascii_uppercase+string.digits) for _ in range(6))
@@ -205,7 +206,8 @@ async def rematch_req(ws,c):
     if c not in rooms:return
     r=rooms[c];n=find(r,ws)
     if n is None or not r['game_over'] or r['rematch_request'] is not None:return
-    # Nenpòt nan 2 jwè yo ka mande revanj/rematch.
+    # requester must be the loser, unless draw (either player may request)
+    if not r['draw'] and r['winner']==n:return
     r['rematch_request']=n;r['last_timer_update']=time.monotonic();await broadcast(r)
 async def rematch_resp(ws,c,accepted):
     c=str(c or '').upper().strip();
@@ -214,7 +216,7 @@ async def rematch_resp(ws,c,accepted):
     if n is None or q is None or n==q:return
     if accepted:
         r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None
-    r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['last_timer_update']=time.monotonic();await broadcast(r)
+    r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];r['last_timer_update']=time.monotonic();await broadcast(r)
 async def chat(ws,c,message):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -227,58 +229,266 @@ async def chat(ws,c,message):
     item={'sender':sender,'role':'spectator' if is_spec else 'player','text':msg,'time':int(time.time())}
     r.setdefault('chat',[]).append(item); r['chat']=r['chat'][-80:]
     await broadcast(r)
-def voice_room_participants(r):
-    peers=[]
-    for n,p in r.get('players',{}).items():
-        sock=p.get('socket')
-        if sock and p.get('connected'):
-            info=voice_connections.get(sock)
-            if info: peers.append({'peer_id':info['id'],'role':'player','username':p.get('username',f'Joueur {n}')})
-    for sock in list(r.get('spectators',set())):
-        info=voice_connections.get(sock)
-        if info: peers.append({'peer_id':info['id'],'role':'spectator','username':info.get('username','Spectateur')})
-    return peers
-
-async def voice_join(ws,c):
+async def voice_join(ws, c):
     c=str(c or '').upper().strip()
     if c not in rooms: return
-    r=rooms[c]; n=find(r,ws); is_spec=ws in r.get('spectators',set())
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
-    old=voice_connections.get(ws)
-    if old and old.get('room')==c: return
-    if old: await voice_leave(ws)
-    role='spectator' if is_spec else 'player'
-    ident=secrets.token_urlsafe(9)
-    display_name=(username(ws,'Spectateur') if is_spec else username(ws,f'Joueur {n}'))
-    voice_connections[ws]={'id':ident,'room':c,'role':role,'username':display_name}
-    peers=[x for x in voice_room_participants(r) if x['peer_id']!=ident]
+    peers=[]
+    for pn, player in r['players'].items():
+        other=player.get('socket')
+        if other is not None and other is not ws:
+            peers.append({'peer_id':str(id(other))})
+    for other in list(r['spectators']):
+        if other is not ws:
+            peers.append({'peer_id':str(id(other))})
     await send(ws,{'type':'voice_peer_list','room':c,'peers':peers})
-    for peer in peers:
-        for sock,info in list(voice_connections.items()):
-            if info.get('id')==peer['peer_id']:
-                await send(sock,{'type':'voice_peer_join','room':c,'peer_id':ident,'role':role,'username':voice_connections[ws]['username']})
-                break
+    for peer in list(r['players'].values()):
+        other=peer.get('socket')
+        if other is not None and other is not ws:
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
+    for other in list(r['spectators']):
+        if other is not ws:
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
 
-async def voice_signal(ws,c,to_id,signal_type,payload):
-    c=str(c or '').upper().strip(); info=voice_connections.get(ws)
-    if c not in rooms or not info or info.get('room')!=c: return
-    # Only relay within this match; no cross-room voice signaling.
-    for peer,peer_info in list(voice_connections.items()):
-        if peer is ws or peer_info.get('room')!=c:
+async def voice_signal(ws, c, to, signal_type, payload):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
+    if n is None and not is_spec: return
+    signal_type=str(signal_type or '')
+    if signal_type not in ('description','ice'): return
+    try: target_id=int(to)
+    except (TypeError,ValueError): return
+    targets=[]
+    for player in r['players'].values():
+        other=player.get('socket')
+        if other is not None and other is not ws and id(other)==target_id: targets.append(other)
+    for other in list(r['spectators']):
+        if other is not ws and id(other)==target_id: targets.append(other)
+    if not targets: return
+    safe_payload=payload if isinstance(payload,dict) else {}
+    # Payload size cap prevents signaling messages from becoming a general data channel.
+    if len(json.dumps(safe_payload))>12000: return
+    await send(targets[0],{'type':'voice_signal','room':c,'from_id':str(id(ws)),'signal_type':signal_type,'payload':safe_payload})
+
+
+# ---------------- MORPION 3x3 ----------------
+# Chanm TTT yo ak siyal vwa yo separe nèt ak chanm Morpion 20x20 yo.
+ttt_rooms={}
+ttt_invitations={}
+
+def ttt_find_room(ws):
+    for room_code, room in ttt_rooms.items():
+        if ws in room.get('players',[]) and room.get('status')!='closed':
+            return room_code,room
+    return None,None
+
+def ttt_code():
+    while True:
+        value=''.join(secrets.choice(string.ascii_uppercase+string.digits) for _ in range(6))
+        if value not in rooms and value not in ttt_rooms:
+            return value
+
+async def ttt_send_state(room_code):
+    room=ttt_rooms.get(room_code)
+    if not room:
+        return
+    payload={
+        'type':'ttt_state','room':room_code,'board':room['board'],
+        'turn':room['turn'],'status':room['status'],'winner':room.get('winner'),
+        'players':room['names']
+    }
+    for player in list(room['players']):
+        await send(player,payload)
+
+async def ttt_online_players(ws):
+    me=connected_accounts.get(ws,{}).get('player_id')
+    players={}
+    for client,account in list(connected_accounts.items()):
+        player_id=account.get('player_id')
+        if not player_id or player_id==me:
             continue
-        # Verify the recipient is still a player or spectator in this exact room.
-        room=rooms.get(c,{})
-        member=find(room,peer) is not None or peer in room.get('spectators',set())
-        if member and (not to_id or peer_info.get('id')==str(to_id)):
-            await send(peer,{'type':'voice_signal','room':c,'from_id':info['id'],'from_role':info['role'],'from_username':info.get('username','Joueur'),'signal_type':str(signal_type or ''),'payload':payload})
+        room_code,_=ttt_find_room(client)
+        players[player_id]={
+            'player_id':player_id,
+            'username':account.get('username','Joueur'),
+            'in_game':bool(room_code or active_room_for(client))
+        }
+    await send(ws,{'type':'ttt_online_players','players':list(players.values())})
 
-async def voice_leave(ws):
-    info=voice_connections.pop(ws,None)
-    if not info:return
-    c=info.get('room'); ident=info.get('id')
-    for peer,peer_info in list(voice_connections.items()):
-        if peer_info.get('room')==c:
-            await send(peer,{'type':'voice_peer_left','room':c,'peer_id':ident})
+async def ttt_invite(ws,target_id):
+    account=connected_accounts.get(ws)
+    if not account:
+        return await send(ws,{'type':'ttt_error','message':'Konekte sou kont ou anvan ou envite.'})
+    if ttt_find_room(ws)[0] or active_room_for(ws):
+        return await send(ws,{'type':'ttt_error','message':'Ou deja nan yon match. Fini oswa kite lòt match la anvan.'})
+    try:
+        target_id=int(target_id)
+    except (TypeError,ValueError):
+        return await send(ws,{'type':'ttt_error','message':'Jwè sa a pa valid.'})
+    now=time.monotonic()
+    for old_id,old_invite in list(ttt_invitations.items()):
+        if now-old_invite.get('created',0)>INVITATION_TTL_SECONDS:
+            ttt_invitations.pop(old_id,None)
+    target=None
+    for client,other_account in list(connected_accounts.items()):
+        if other_account.get('player_id')==target_id and client is not ws:
+            target=client
+    if target is None:
+        return await send(ws,{'type':'ttt_error','message':'Jwè a pa konekte ankò.'})
+    if ttt_find_room(target)[0] or active_room_for(target):
+        return await send(ws,{'type':'ttt_error','message':'Jwè sa deja nan yon match.'})
+    invitation_id=secrets.token_urlsafe(12)
+    ttt_invitations[invitation_id]={
+        'from_ws':ws,'to_ws':target,'from_account':account,
+        'created':now
+    }
+    await send(target,{
+        'type':'ttt_game_invite','invitation_id':invitation_id,
+        'from_username':account.get('username','Joueur')
+    })
+    await send(ws,{'type':'ttt_invite_result','success':True,'message':'Envitasyon 3×3 la voye.'})
+
+async def ttt_invite_response(ws,invitation_id,accepted):
+    invite=ttt_invitations.pop(str(invitation_id or ''),None)
+    if not invite or invite.get('to_ws') is not ws:
+        return await send(ws,{'type':'ttt_error','message':'Envitasyon an ekspire oswa pa valid.'})
+    inviter=invite.get('from_ws')
+    if time.monotonic()-invite.get('created',0)>INVITATION_TTL_SECONDS:
+        if inviter:
+            await send(inviter,{'type':'ttt_invite_result','success':False,'message':'Envitasyon Morpion 3×3 la ekspire.'})
+        return await send(ws,{'type':'ttt_invite_result','success':False,'message':'Envitasyon an ekspire.'})
+    if inviter not in connected_accounts or ws not in connected_accounts:
+        if inviter in connected_accounts:
+            await send(inviter,{'type':'ttt_invite_result','success':False,'message':'Jwè a pa konekte ankò.'})
+        return await send(ws,{'type':'ttt_invite_result','success':False,'message':'Moun ki te envite w la pa konekte ankò.'})
+    if not accepted:
+        await send(inviter,{'type':'ttt_invite_result','success':True,'message':username(ws,'Jwè a')+' refize envitasyon Morpion 3×3 la.'})
+        return await send(ws,{'type':'ttt_invite_result','success':True,'message':'Ou refize envitasyon Morpion 3×3 la.'})
+    if ttt_find_room(inviter)[0] or ttt_find_room(ws)[0] or active_room_for(inviter) or active_room_for(ws):
+        await send(inviter,{'type':'ttt_error','message':'Youn nan jwè yo deja nan yon match.'})
+        return await send(ws,{'type':'ttt_error','message':'Youn nan jwè yo deja nan yon match.'})
+    room_code=ttt_code()
+    names={'X':username(inviter,'Jwè X'),'O':username(ws,'Jwè O')}
+    room={
+        'players':[inviter,ws],'names':names,'board':['']*9,'turn':'X',
+        'status':'playing','winner':None,'voice_peers':set(),
+        'created':time.monotonic()
+    }
+    ttt_rooms[room_code]=room
+    await send(inviter,{'type':'ttt_match_started','room':room_code,'player':'X','board':room['board'],'turn':'X','status':'playing'})
+    await send(ws,{'type':'ttt_match_started','room':room_code,'player':'O','board':room['board'],'turn':'X','status':'playing'})
+    await ttt_send_state(room_code)
+
+async def ttt_create(ws):
+    if not connected_accounts.get(ws):
+        return await send(ws,{'type':'ttt_error','message':'Konekte anvan ou kreye chanm.'})
+    if ttt_find_room(ws)[0] or active_room_for(ws):
+        return await send(ws,{'type':'ttt_error','message':'Ou deja nan yon match.'})
+    room_code=ttt_code()
+    room={
+        'players':[ws],'names':{'X':username(ws,'Jwè X')},'board':['']*9,
+        'turn':'X','status':'waiting','winner':None,'voice_peers':set(),
+        'created':time.monotonic()
+    }
+    ttt_rooms[room_code]=room
+    await send(ws,{'type':'ttt_created','room':room_code,'player':'X','message':'Chanm kreye. Pataje kòd la ak zanmi ou.'})
+
+async def ttt_join(ws,room_code):
+    room_code=str(room_code or '').upper().strip()
+    room=ttt_rooms.get(room_code)
+    if not room or room['status']!='waiting' or len(room['players'])!=1:
+        return await send(ws,{'type':'ttt_error','message':'Chanm nan pa disponib.'})
+    if not connected_accounts.get(ws):
+        return await send(ws,{'type':'ttt_error','message':'Konekte anvan ou antre nan chanm.'})
+    if ttt_find_room(ws)[0] or active_room_for(ws):
+        return await send(ws,{'type':'ttt_error','message':'Ou deja nan yon match.'})
+    room['players'].append(ws)
+    room['names']['O']=username(ws,'Jwè O')
+    room['status']='playing'
+    await send(ws,{'type':'ttt_joined','room':room_code,'player':'O','message':'Ou antre nan match la.'})
+    await ttt_send_state(room_code)
+
+async def ttt_move(ws,room_code,index):
+    room_code=str(room_code or '').upper().strip()
+    room=ttt_rooms.get(room_code)
+    if not room or room['status']!='playing' or ws not in room['players']:
+        return
+    try:
+        index=int(index)
+    except (TypeError,ValueError):
+        return
+    turn_index=0 if room['turn']=='X' else 1
+    if not 0<=index<9 or room['board'][index] or room['players'][turn_index] is not ws:
+        return
+    mark=room['turn']
+    room['board'][index]=mark
+    winning_lines=((0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6))
+    if any(all(room['board'][cell]==mark for cell in line) for line in winning_lines):
+        room['status']='finished';room['winner']=mark
+    elif all(room['board']):
+        room['status']='finished';room['winner']='draw'
+    else:
+        room['turn']='O' if mark=='X' else 'X'
+    await ttt_send_state(room_code)
+
+async def ttt_voice_join(ws,room_code):
+    room_code=str(room_code or '').upper().strip()
+    room=ttt_rooms.get(room_code)
+    if not room or ws not in room['players'] or room['status'] not in ('playing','finished'):
+        return
+    peers=room.setdefault('voice_peers',set())
+    if ws in peers:
+        other_peers=[p for p in room['players'] if p is not ws and p in peers]
+        return await send(ws,{'type':'ttt_voice_peer_list','room':room_code,'peers':[{'peer_id':str(id(p))} for p in other_peers]})
+    other_peers=[p for p in room['players'] if p is not ws and p in peers]
+    peers.add(ws)
+    await send(ws,{'type':'ttt_voice_peer_list','room':room_code,'peers':[{'peer_id':str(id(p))} for p in other_peers]})
+    for other in other_peers:
+        await send(other,{'type':'ttt_voice_peer_join','room':room_code,'peer_id':str(id(ws))})
+
+async def ttt_voice_leave(ws,room_code):
+    room_code=str(room_code or '').upper().strip()
+    room=ttt_rooms.get(room_code)
+    if not room:
+        return
+    peers=room.setdefault('voice_peers',set())
+    if ws not in peers:
+        return
+    peers.discard(ws)
+    for other in list(peers):
+        await send(other,{'type':'ttt_voice_peer_left','room':room_code,'peer_id':str(id(ws))})
+
+async def ttt_voice_signal(ws,room_code,to,signal_type,payload):
+    room_code=str(room_code or '').upper().strip()
+    room=ttt_rooms.get(room_code)
+    if not room or ws not in room.get('voice_peers',set()):
+        return
+    if signal_type not in ('description','ice'):
+        return
+    target=next((p for p in room['players'] if p is not ws and p in room.get('voice_peers',set()) and str(id(p))==str(to)),None)
+    if target is None or not isinstance(payload,dict):
+        return
+    if len(json.dumps(payload))>12000:
+        return
+    await send(target,{
+        'type':'ttt_voice_signal','room':room_code,'from_id':str(id(ws)),
+        'signal_type':signal_type,'payload':payload
+    })
+
+async def ttt_leave(ws,room_code):
+    room_code=str(room_code or '').upper().strip()
+    room=ttt_rooms.get(room_code)
+    if not room or ws not in room.get('players',[]):
+        return await send(ws,{'type':'ttt_leave_result','success':True})
+    for other in list(room['players']):
+        if other is not ws:
+            await send(other,{'type':'ttt_voice_peer_left','room':room_code,'peer_id':str(id(ws))})
+            await send(other,{'type':'ttt_opponent_left','room':room_code,'message':'Advèsè a kite chanm 3×3 la.'})
+    room['status']='closed'
+    ttt_rooms.pop(room_code,None)
+    await send(ws,{'type':'ttt_leave_result','success':True,'room':room_code})
 
 async def rooms_list(ws):
     out=[]
@@ -293,7 +503,7 @@ async def reset(ws,c):
     if c not in rooms:return
     r=rooms[c];n=find(r,ws)
     if n is None or not r['game_over']:return
-    r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None;r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;await broadcast(r)
+    r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None;r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];await broadcast(r)
 async def abandon_if_disconnected(room_code, player_number, marker):
     """Only forfeit after a reconnect grace period, not on a brief network drop."""
     await asyncio.sleep(RECONNECT_GRACE_SECONDS)
@@ -315,6 +525,16 @@ async def abandon_if_disconnected(room_code, player_number, marker):
     await broadcast(r)
 
 async def disconnect(ws):
+    for iid,inv in list(ttt_invitations.items()):
+        if inv.get('from_ws') is ws or inv.get('to_ws') is ws: ttt_invitations.pop(iid,None)
+    for rc,room in list(ttt_rooms.items()):
+        if ws in room.get('players',[]):
+            for other in list(room.get('players',[])):
+                if other is not ws:
+                    await send(other,{'type':'ttt_voice_peer_left','room':rc,'peer_id':str(id(ws))})
+                    await send(other,{'type':'ttt_opponent_left','room':rc,'message':'Advèsè a dekonekte.'})
+            room['status']='closed'
+            ttt_rooms.pop(rc,None)
     queue[:]=[x for x in queue if x is not ws]
     for iid,inv in list(invitations.items()):
         if inv.get('from_ws') is ws or inv.get('to_ws') is ws:
@@ -369,44 +589,6 @@ async def logout_session(ws, token):
     connected_accounts.pop(ws,None)
     await send(ws,{'type':'logout_result','success':True})
 
-async def leave_match(ws, room_code=None):
-    """End a player's current match immediately when they choose to leave."""
-    room_code=str(room_code or '').upper().strip()
-    if room_code not in rooms:
-        room_code=active_room_for(ws)
-    if not room_code or room_code not in rooms:
-        return await send(ws,{'type':'leave_match_result','success':True})
-    r=rooms[room_code]
-    n=find(r,ws)
-    if n is None:
-        return await send(ws,{'type':'leave_match_result','success':True})
-    p=r['players'][n]
-    # A voluntary exit immediately frees the account and awards the opponent the forfeit.
-    p['connected']=False
-    p['socket']=None
-    p['disconnected_at']=time.monotonic()
-    p['disconnect_marker']=None
-    if not r.get('game_over') and len(r.get('players',{})) == 2:
-        other=2 if n==1 else 1
-        if r['players'].get(other,{}).get('connected'):
-            r['game_over']=True
-            r['winner']=other
-            r['draw']=False
-            r['abandonment']=True
-            r['winning_line']=None
-            r['rematch_request']=None
-            r['undo_request']=None
-            r['black_score']+=int(other==1)
-            r['red_score']+=int(other==2)
-            await record_result(r)
-    await voice_leave(ws)
-    await broadcast(r)
-    await send(ws,{'type':'leave_match_result','success':True,'room':room_code})
-    # Notify connected account views that the player is available again.
-    for client in list(connected_accounts):
-        if client is not ws:
-            await send(client,{'type':'online_players_refresh'})
-
 async def online_players(ws):
     me=connected_accounts.get(ws,{}).get('player_id')
     players={}
@@ -429,9 +611,12 @@ async def invite_player(ws, target_id, duration, size):
     now=time.monotonic()
     for old_id,old_inv in list(invitations.items()):
         if now-old_inv.get('created',0)>INVITATION_TTL_SECONDS: invitations.pop(old_id,None)
+    # Si menm kont lan gen plizyè koneksyon (plizyè onglet/navigatè),
+    # voye envitasyon an bay dènye WebSocket ki konekte a, pa premye ansyen an.
     target_ws=None
-    for client,a in connected_accounts.items():
-        if a.get('player_id')==target_id and client is not ws: target_ws=client; break
+    for client,a in list(connected_accounts.items()):
+        if a.get('player_id')==target_id and client is not ws:
+            target_ws=client
     if not target_ws: return await send(ws,{'type':'invite_result','success':False,'message':'Ce joueur n’est plus connecté.'})
     for r in rooms.values():
         if any(p.get('player_id')==target_id and not r.get('game_over') for p in r['players'].values()):
@@ -463,6 +648,20 @@ async def invite_response(ws, invitation_id, accepted):
     await send(inviter,{'type':'direct_match','room':c,'player':1,'session_token':t1,'message':'🎮 Invitation acceptée !'}); await send(invitee,{'type':'direct_match','room':c,'player':2,'session_token':t2,'message':'🎮 Invitation acceptée !'})
     await broadcast(r)
 
+async def leave_match(ws, c):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return await send(ws,{'type':'leave_match_result','success':True})
+    r=rooms[c]; n=find(r,ws)
+    if n is None: return await send(ws,{'type':'leave_match_result','success':True})
+    if not r.get('game_over') and len(r.get('players',{}))==2:
+        other=2 if n==1 else 1
+        r['game_over']=True; r['winner']=other; r['draw']=False; r['abandonment']=True
+        r['winning_line']=None; r['rematch_request']=None; r['undo_request']=None
+        r['black_score']+=int(other==1); r['red_score']+=int(other==2)
+        await record_result(r)
+        await broadcast(r)
+    await send(ws,{'type':'leave_match_result','success':True,'room':c})
+
 async def undo_request(ws, c):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -490,9 +689,9 @@ async def handler(ws):
                 if t=='restore_session':await restore_session(ws,d.get('account_token'))
                 elif t=='logout_session':await logout_session(ws,d.get('account_token'))
                 elif t=='online_players':await online_players(ws)
-                elif t=='leave_match':await leave_match(ws,d.get('room'))
                 elif t=='invite_player':await invite_player(ws,d.get('target_player_id'),d.get('duration_minutes',5),d.get('board_size',15))
                 elif t=='invite_response':await invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
+                elif t=='leave_match':await leave_match(ws,d.get('room'))
                 elif t=='undo_request':await undo_request(ws,d.get('room'))
                 elif t=='undo_response':await undo_response(ws,d.get('room'),bool(d.get('accepted',False)))
                 elif t=='register':await register(ws,d.get('username'),d.get('email'),d.get('password'),d.get('password_confirmation'))
@@ -505,13 +704,22 @@ async def handler(ws):
                     await create(ws,requested_size,duration_seconds)
                 elif t=='join':await join(ws,d.get('room',d.get('room_code',d.get('code'))))
                 elif t in ('watch','spectate'):await watch(ws,d.get('room',d.get('room_code',d.get('code'))))
-                elif t in ('stop_watching','leave_spectator'):await voice_leave(ws);remove_spec(ws);await send(ws,{'type':'watch_stopped'})
+                elif t in ('stop_watching','leave_spectator'):remove_spec(ws);await send(ws,{'type':'watch_stopped'})
                 elif t=='live_matches':await live(ws)
                 elif t=='rooms_list':await rooms_list(ws)
                 elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
                 elif t=='voice_join':await voice_join(ws,d.get('room'))
                 elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
-                elif t=='voice_leave':await voice_leave(ws)
+                elif t=='ttt_online_players':await ttt_online_players(ws)
+                elif t=='ttt_invite_player':await ttt_invite(ws,d.get('target_player_id'))
+                elif t=='ttt_invite_response':await ttt_invite_response(ws,d.get('invitation_id'),bool(d.get('accepted',False)))
+                elif t=='ttt_create':await ttt_create(ws)
+                elif t=='ttt_join':await ttt_join(ws,d.get('room'))
+                elif t=='ttt_move':await ttt_move(ws,d.get('room'),d.get('index',d.get('cell')))
+                elif t=='ttt_voice_join':await ttt_voice_join(ws,d.get('room'))
+                elif t=='ttt_voice_leave':await ttt_voice_leave(ws,d.get('room'))
+                elif t=='ttt_voice_signal':await ttt_voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
+                elif t=='ttt_leave':await ttt_leave(ws,d.get('room'))
                 elif t=='find_match':await find_match(ws)
                 elif t=='cancel_match':await cancel(ws)
                 elif t=='reconnect':await reconnect(ws,d.get('room'),d.get('player'),d.get('session_token'))
@@ -525,10 +733,28 @@ async def handler(ws):
                 await send(ws,{'type':'error','message':'Mesaj la pa valab. Verifye done yo epi eseye ankò.'})
     except websockets.exceptions.ConnectionClosed:pass
     except Exception as e:print('Erreur client:',repr(e))
-    finally:
-        await voice_leave(ws)
-        await disconnect(ws)
+    finally:await disconnect(ws)
+def health_response(connection, request):
+    # Render's health checker may send HEAD/GET to the service URL.
+    # A pure WebSocket listener normally expects GET + Upgrade and logs
+    # HEAD as a failed WebSocket handshake. Intercept normal HTTP probes here.
+    path = request.path.split('?', 1)[0]
+    if path in ('/', '/health', '/healthz') and request.headers.get('Upgrade', '').lower() != 'websocket':
+        body = b'{\"ok\":true,\"service\":\"MR_Jery_Morpion_Game_Server\",\"websocket\":true}'
+        if request.method == 'HEAD':
+            body = b''
+        return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+    return None
+
 async def main():
-    print(f'Serveur Gomoku lancé sur {HOST}:{PORT}');asyncio.create_task(timer_loop())
-    async with websockets.serve(handler,HOST,PORT,ping_interval=20,ping_timeout=20,max_size=1_000_000):print('WebSocket server prêt.');await asyncio.Future()
+    print(f'Serveur Gomoku lance sou {HOST}:{PORT}')
+    asyncio.create_task(timer_loop())
+    async with websockets.serve(
+        handler, HOST, PORT,
+        process_request=health_response,
+        ping_interval=20, ping_timeout=20,
+        max_size=1_000_000,
+    ):
+        print('WebSocket server prêt + HTTP health endpoint /health.')
+        await asyncio.Future()
 if __name__=='__main__':asyncio.run(main())
