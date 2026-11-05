@@ -1,11 +1,11 @@
 import asyncio,json,secrets,string,time,os,hashlib,hmac,re
-import websockets, psycopg2
+import websockets, psycopg
 from websockets.http11 import Headers, Response
 HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
 DATABASE_URL=os.environ.get('DATABASE_URL'); db=None
 if DATABASE_URL:
     try:
-        db=psycopg2.connect(DATABASE_URL); db.autocommit=True
+        db=psycopg.connect(DATABASE_URL); db.autocommit=True
         c=db.cursor(); c.execute('''CREATE TABLE IF NOT EXISTS players (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS points INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS wins INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS losses INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS draws INTEGER NOT NULL DEFAULT 0"); c.execute('''CREATE TABLE IF NOT EXISTS account_sessions (token_hash VARCHAR(64) PRIMARY KEY, player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.close(); print('PostgreSQL database connected.')
     except Exception as e: print('Database connection error:',repr(e)); db=None
 
@@ -63,7 +63,7 @@ def code():
         x=''.join(secrets.choice(string.ascii_uppercase+string.digits) for _ in range(6))
         if x not in rooms:return x
 def board(): return [[0]*BOARD_SIZE for _ in range(BOARD_SIZE)]
-def room_base(size=BOARD_SIZE,duration=START_TIME): return {'board':[[0]*size for _ in range(size)],'board_size':size,'duration':duration,'players':{},'spectators':set(),'turn':1,'starter':1,'black_time':duration,'red_time':duration,'last_timer_update':time.monotonic(),'game_over':False,'winner':0,'draw':False,'abandonment':False,'black_score':0,'red_score':0,'game_number':1,'last_move':None,'last_move_was_win':False,'winning_line':None,'rematch_request':None,'undo_request':None,'move_history':[],'chat':[],'stats_recorded':False,'voice_players':set()}
+def room_base(size=BOARD_SIZE,duration=START_TIME): return {'board':[[0]*size for _ in range(size)],'board_size':size,'duration':duration,'players':{},'spectators':set(),'turn':1,'starter':1,'black_time':duration,'red_time':duration,'last_timer_update':time.monotonic(),'game_over':False,'winner':0,'draw':False,'abandonment':False,'black_score':0,'red_score':0,'game_number':1,'last_move':None,'last_move_was_win':False,'winning_line':None,'rematch_request':None,'undo_request':None,'move_history':[],'chat':[],'stats_recorded':False}
 def new_room():
     c=code(); rooms[c]=room_base(); return c
 def session(): return secrets.token_urlsafe(32)
@@ -216,7 +216,7 @@ async def rematch_resp(ws,c,accepted):
     if n is None or q is None or n==q:return
     if accepted:
         r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None
-    r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];r['voice_players']=set();r['last_timer_update']=time.monotonic();await broadcast(r)
+    r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];r['last_timer_update']=time.monotonic();await broadcast(r)
 async def chat(ws,c,message):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -229,89 +229,46 @@ async def chat(ws,c,message):
     item={'sender':sender,'role':'spectator' if is_spec else 'player','text':msg,'time':int(time.time())}
     r.setdefault('chat',[]).append(item); r['chat']=r['chat'][-80:]
     await broadcast(r)
-def player_has_elite(pid):
-    if db is None or not pid:
-        return False
-    try:
-        cur=db.cursor()
-        cur.execute("SELECT premium_type, active, expires_at > NOW() FROM premium_subscriptions WHERE user_id=%s", (str(pid),))
-        row=cur.fetchone(); cur.close()
-        return bool(row and row[0] == 'elite' and row[1] and row[2])
-    except Exception as ex:
-        print('Premium voice check error:', repr(ex))
-        return False
-
 async def voice_join(ws, c):
     c=str(c or '').upper().strip()
     if c not in rooms: return
     r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
-    if n is not None:
-        pid=r['players'].get(n,{}).get('player_id')
-        if not player_has_elite(pid):
-            return await send(ws,{'type':'voice_error','message':'Vwa an dirèk rezève pou manm Premium Elite ki aktif.'})
-        r.setdefault('voice_players',set()).add(n)
-    elif len(r.get('voice_players',set())) < 2:
-        return await send(ws,{'type':'voice_error','message':'Espektatè yo ka koute sèlman lè 2 jwè yo aktive vwa Elite.'})
-
-    # No spectator-to-spectator peer connections: spectators receive audio only
-    # from the two players. Player connections are limited to Elite participants.
     peers=[]
-    if is_spec:
-        for pn in (1,2):
-            player=r['players'].get(pn,{})
-            other=player.get('socket')
-            if pn in r.get('voice_players',set()) and other is not None and other is not ws:
-                peers.append({'peer_id':str(id(other))})
-    else:
-        for pn in (1,2):
-            player=r['players'].get(pn,{})
-            other=player.get('socket')
-            if pn in r.get('voice_players',set()) and other is not None and other is not ws:
-                peers.append({'peer_id':str(id(other))})
-        for other in list(r['spectators']):
-            if other is not ws:
-                peers.append({'peer_id':str(id(other))})
+    for pn, player in r['players'].items():
+        other=player.get('socket')
+        if other is not None and other is not ws:
+            peers.append({'peer_id':str(id(other))})
+    for other in list(r['spectators']):
+        if other is not ws:
+            peers.append({'peer_id':str(id(other))})
     await send(ws,{'type':'voice_peer_list','room':c,'peers':peers})
-
-    if is_spec:
-        # Notify only players; never expose another spectator as a voice peer.
-        for pn, player in r['players'].items():
-            other=player.get('socket')
-            if pn in r.get('voice_players',set()) and other is not None:
-                await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
-    else:
-        for pn, player in r['players'].items():
-            other=player.get('socket')
-            if pn in r.get('voice_players',set()) and other is not None and other is not ws:
-                await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
-        for other in list(r['spectators']):
-            if other is not ws:
-                await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
+    for peer in list(r['players'].values()):
+        other=peer.get('socket')
+        if other is not None and other is not ws:
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
+    for other in list(r['spectators']):
+        if other is not ws:
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
 
 async def voice_signal(ws, c, to, signal_type, payload):
     c=str(c or '').upper().strip()
     if c not in rooms: return
     r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
-    if n is not None and n not in r.get('voice_players',set()): return
-    if is_spec and len(r.get('voice_players',set())) < 2: return
     signal_type=str(signal_type or '')
     if signal_type not in ('description','ice'): return
     try: target_id=int(to)
     except (TypeError,ValueError): return
     targets=[]
-    for pn, player in r['players'].items():
+    for player in r['players'].values():
         other=player.get('socket')
-        if other is not None and other is not ws and id(other)==target_id and pn in r.get('voice_players',set()):
-            targets.append(other)
-    # Spectators can never signal to other spectators. Players may send audio
-    # negotiation to spectators so those spectators can receive-only listen.
-    if not is_spec:
-        for other in list(r['spectators']):
-            if other is not ws and id(other)==target_id: targets.append(other)
+        if other is not None and other is not ws and id(other)==target_id: targets.append(other)
+    for other in list(r['spectators']):
+        if other is not ws and id(other)==target_id: targets.append(other)
     if not targets: return
     safe_payload=payload if isinstance(payload,dict) else {}
+    # Payload size cap prevents signaling messages from becoming a general data channel.
     if len(json.dumps(safe_payload))>12000: return
     await send(targets[0],{'type':'voice_signal','room':c,'from_id':str(id(ws)),'signal_type':signal_type,'payload':safe_payload})
 
