@@ -301,6 +301,10 @@ async def voice_signal(ws, c, to, signal_type, payload):
     for other in list(r['spectators']):
         if other is not ws and id(other)==target_id: targets.append(other)
     if not targets: return
+    if r.get('tournament_id') and targets[0] in r.get('spectators',set()):
+        target_acct=connected_accounts.get(targets[0],{})
+        target_allowed=await asyncio.to_thread(tournament.can_spectator_use_mic,str(r.get('tournament_id')),str(target_acct.get('player_id') or ''))
+        if not target_allowed: return
     safe_payload=payload if isinstance(payload,dict) else {}
     # Payload size cap prevents signaling messages from becoming a general data channel.
     if len(json.dumps(safe_payload))>12000: return
