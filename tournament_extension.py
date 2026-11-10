@@ -775,9 +775,9 @@ def register_entry(tournament_id: str, player_id: str,
         t=conn.execute("SELECT * FROM gomoku_tournaments WHERE tournament_id=%s FOR UPDATE",(tournament_id,)).fetchone()
         if not t: raise TournamentError("Tournament not found.")
         if t["status"]!="registration": raise TournamentError("Registration is closed.")
-         current_entries=conn.execute("SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",(tournament_id,)).fetchone()["n"]
-         if int(current_entries or 0)>=int(t.get("max_participants") or 100):
-             raise TournamentError("Tournoi sa a rive nan kantite maksimòm jwè li ka resevwa.")
+        current_entries=conn.execute("SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",(tournament_id,)).fetchone()["n"]
+        if int(current_entries or 0)>=int(t.get("max_participants") or 100):
+            raise TournamentError("Tournoi sa a rive nan kantite maksimòm jwè li ka resevwa.")
         if not proof_data and t["payment_method"] in {"moncash","natcash"}:
             raise TournamentError("A payment proof image is required for this payment method.")
         accepted_at=int(time.time())
