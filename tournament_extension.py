@@ -669,3 +669,60 @@ def list_tournament_messages(tournament_id: str, player_id: str) -> list[dict]:
                ORDER BY created_at DESC LIMIT 60""",(tournament_id,)
         ).fetchall()
     return [dict(x) for x in reversed(rows)]
+
+
+# Final overrides and read helpers used by the WebSocket adapter.
+def start_tournament(tournament_id: str, organizer_id: str) -> dict:
+    init_bracket_schema()
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        if str(t["organizer_id"])!=str(organizer_id):
+            raise TournamentError("Only the organizer can start this tournament.")
+        if t["status"]!="registration":
+            raise TournamentError("Tournament is not open for starting.")
+        players=conn.execute(
+            """SELECT player_id FROM gomoku_tournament_entries
+               WHERE tournament_id=%s AND payment_status='verified' ORDER BY created_at""",
+            (tournament_id,),
+        ).fetchall()
+        ids=[str(x["player_id"]) for x in players]
+        if len(ids)<2:
+            raise TournamentError("At least two verified players are required.")
+        conn.execute("UPDATE gomoku_tournaments SET status='live',started_at=%s WHERE tournament_id=%s",
+                     (int(time.time()),tournament_id))
+        _make_round(conn,tournament_id,1,ids)
+    return {"ok":True,"status":"live","tournament_id":tournament_id,
+            "matches_created":(len(ids)+1)//2}
+
+
+def get_tournament_match(tournament_id: str, match_id: str) -> dict:
+    init_bracket_schema()
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        m=conn.execute(
+            "SELECT * FROM gomoku_tournament_matches WHERE tournament_id=%s AND match_id=%s",
+            (tournament_id,match_id),
+        ).fetchone()
+        if not m: raise TournamentError("Tournament match not found.")
+        return {"match_id":m["match_id"],"round_no":m["round_no"],
+                "player1_id":m["player1_id"],"player2_id":m["player2_id"],
+                "winner_id":m["winner_id"],"room_code":m["room_code"],
+                "status":m["status"],"organizer_id":str(t["organizer_id"]),
+                "board_size":t["board_size"],"duration_seconds":t["duration_seconds"],
+                "tournament_status":t["status"]}
+
+
+def tournament_organizer(tournament_id: str) -> str:
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        return str(t["organizer_id"])
+
+
+def can_spectator_use_mic(tournament_id: str, player_id: str) -> bool:
+    with _db() as conn:
+        row=conn.execute(
+            """SELECT status FROM gomoku_tournament_voice
+               WHERE tournament_id=%s AND player_id=%s""",
+            (tournament_id,str(player_id)),
+        ).fetchone()
+    return bool(row and row["status"]=="approved")
