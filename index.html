@@ -1308,6 +1308,21 @@ td, th { overflow-wrap: anywhere; }
 }
 
 /* Guided tournament steps */
+#tournamentScreen .tournament-choice-wrap{max-width:900px;margin:clamp(45px,9vh,100px) auto;padding:25px 18px}
+#tournamentScreen .tournament-choice-heading{text-align:center;margin-bottom:28px}
+#tournamentScreen .tournament-choice-heading>span{color:#ffd15b;font-size:10px;font-weight:950;letter-spacing:3px}
+#tournamentScreen .tournament-choice-heading h2{margin:12px 0 8px;color:#fff;font-size:clamp(30px,5vw,46px);font-weight:1000}
+#tournamentScreen .tournament-choice-heading p{color:#aebfdd;font-size:14px}
+#tournamentScreen .tournament-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;max-width:780px;margin:auto}
+#tournamentScreen .tournament-choice-card{display:flex;flex-direction:column;align-items:center;gap:13px;min-height:235px;padding:27px 20px;border:1px solid rgba(255,209,91,.35);border-radius:20px;background:linear-gradient(145deg,#102f65,#061632);color:#fff;cursor:pointer;box-shadow:0 15px 38px rgba(0,0,0,.3);transition:.2s}
+#tournamentScreen .tournament-choice-card:hover{transform:translateY(-4px);border-color:#ffd15b}
+#tournamentScreen .tournament-choice-card>span{font-size:42px}
+#tournamentScreen .tournament-choice-card strong{font-size:clamp(17px,2.5vw,22px);font-weight:1000}
+#tournamentScreen .tournament-choice-card small{max-width:280px;color:#b7c9e5;font-size:12px;line-height:1.6}
+#tournamentScreen .tournament-choice-card>b{margin-top:auto;color:#ffd15b;font-size:11px;letter-spacing:1.4px}
+#tournamentScreen .tournament-delete-zone{margin:22px 0;padding:15px;border:1px solid rgba(248,113,113,.35);border-radius:12px;background:rgba(127,29,29,.13)}
+#tournamentScreen .tournament-delete-zone p{margin:0 0 10px;color:#fca5a5;font-size:12px}
+#tournamentScreen .tournament-delete-button{padding:11px 16px;border:1px solid #b91c1c;border-radius:9px;background:#7f1d1d;color:#fff;font-weight:900;cursor:pointer}
 #tournamentScreen .tournament-stepper{display:flex;align-items:center;justify-content:center;gap:10px;margin:20px auto 24px;max-width:760px}
 #tournamentScreen .tournament-stepper button{display:flex;align-items:center;gap:8px;padding:8px 13px;border:1px solid #28518b;border-radius:12px;background:#061735;color:#9eb7dc;cursor:pointer}
 #tournamentScreen .tournament-stepper button span{display:grid;place-items:center;width:29px;height:29px;border-radius:9px;background:#102c5d;color:#b8cdec;font-size:11px;font-weight:950}
@@ -1327,7 +1342,7 @@ td, th { overflow-wrap: anywhere; }
 #tournamentScreen .tournament-stage-actions{display:flex;justify-content:space-between;gap:10px;margin-top:20px}
 #tournamentScreen .tournament-stage-actions .tournament-primary{width:auto;min-width:190px;margin:0}
 #tournamentScreen .tournament-stage-bottom{justify-content:flex-start;margin:14px 0 22px}
-@media(max-width:620px){#tournamentScreen .tournament-stepper{gap:4px;margin:15px auto 18px}#tournamentScreen .tournament-stepper button{flex-direction:column;gap:4px;padding:6px 5px;flex:1}#tournamentScreen .tournament-stepper button b{font-size:9px}#tournamentScreen .tournament-stepper i{width:8px}#tournamentScreen .tournament-confirm-card{padding:15px}#tournamentScreen .tournament-confirm-summary{grid-template-columns:1fr}#tournamentScreen .tournament-stage-actions{flex-wrap:wrap}#tournamentScreen .tournament-stage-actions .tournament-primary{width:100%}}
+@media(max-width:620px){#tournamentScreen .tournament-choice-grid{grid-template-columns:1fr}#tournamentScreen .tournament-choice-card{min-height:190px}#tournamentScreen .tournament-stepper{gap:4px;margin:15px auto 18px}#tournamentScreen .tournament-stepper button{flex-direction:column;gap:4px;padding:6px 5px;flex:1}#tournamentScreen .tournament-stepper button b{font-size:9px}#tournamentScreen .tournament-stepper i{width:8px}#tournamentScreen .tournament-confirm-card{padding:15px}#tournamentScreen .tournament-confirm-summary{grid-template-columns:1fr}#tournamentScreen .tournament-stage-actions{flex-wrap:wrap}#tournamentScreen .tournament-stage-actions .tournament-primary{width:100%}}
 
 /* Japanese sunset landing — option 3 */
 #tournamentScreen.tournament-page.hero-mode{width:100%;max-width:none!important;min-height:100vh;margin:0!important;padding:0!important;border:0;border-radius:0;background:#1b1830;box-shadow:none;overflow:visible}
@@ -1919,12 +1934,17 @@ td, th { overflow-wrap: anywhere; }
     <button class="tournament-refresh" id="tournamentRefresh" type="button">⟳ Rafrechi lis la</button>
   </header>
   <nav class="tournament-stepper" aria-label="Etap tournoi">
-    <button type="button" class="active" data-t-step="2"><span>02</span><b>Kreye</b></button>
-    <i></i><button type="button" data-t-step="3"><span>03</span><b>Konfime</b></button>
-    <i></i><button type="button" data-t-step="4"><span>04</span><b>Disponib</b></button>
-    <i></i><button type="button" data-t-step="5"><span>05</span><b>Detay</b></button>
+    <button type="button" class="active" data-t-step="2"><span>01</span><b>Chwazi</b></button><i></i><button type="button" data-t-step="3"><span>02</span><b>Kreye</b></button><i></i><button type="button" data-t-step="4"><span>03</span><b>Konfime</b></button><i></i><button type="button" data-t-step="5"><span>04</span><b>Disponib</b></button><i></i><button type="button" data-t-step="6"><span>05</span><b>Detay</b></button>
   </nav>
-<section class="tournament-stage active" data-t-stage="2">
+  <section class="tournament-stage active" data-t-stage="2">
+    <div class="tournament-choice-wrap"><div class="tournament-choice-heading"><span>MR_JERY ARENA</span><h2>Kisa ou vle fè?</h2><p>Chwazi kijan ou vle patisipe nan konpetisyon yo.</p></div>
+      <div class="tournament-choice-grid">
+        <button type="button" class="tournament-choice-card" data-t-go="5"><span>🏆</span><strong>Rejoindre un tournoi</strong><small>Gade tournoi ki disponib yo epi antre nan youn.</small><b>CONTINUER →</b></button>
+        <button type="button" class="tournament-choice-card" data-t-go="3"><span>✨</span><strong>Créer un tournoi</strong><small>Kreye pwòp konpetisyon ou epi jere patisipan yo.</small><b>CRÉER →</b></button>
+      </div>
+    </div>
+  </section>
+<section class="tournament-stage" data-t-stage="3">
   <div class="tournament-create-pro">
     <div class="create-pro-heading">
       <div class="create-pro-kicker"><span>MR_JERY ARENA</span><i>•</i><span>TOURNAMENT SETUP</span></div>
@@ -1950,7 +1970,7 @@ td, th { overflow-wrap: anywhere; }
     <input id="tournamentPrize1" type="hidden" value="70"><input id="tournamentPrize2" type="hidden" value="20"><input id="tournamentPrize3" type="hidden" value="10">
   </div>
 </section>
-  <section class="tournament-stage" data-t-stage="3">
+  <section class="tournament-stage" data-t-stage="4">
     <div class="tournament-confirm-card">
       <div class="tournament-section-title"><span>02</span><div><h2>Verifye konpetisyon an</h2><p>Verifye enfòmasyon yo anvan ou kreye tournoi a.</p></div></div>
       <div id="tournamentConfirmSummary" class="tournament-confirm-summary"></div>
@@ -1960,7 +1980,7 @@ td, th { overflow-wrap: anywhere; }
       </div>
     </div>
   </section>
-  <section class="tournament-stage" data-t-stage="4">
+  <section class="tournament-stage" data-t-stage="5">
     <section class="tournament-list-card">
       <div class="tournament-section-title"><span>02</span><div><h2>Tournois disponib</h2><p>Chèche konpetisyon ki ouvè yo, gade kondisyon yo epi antre ladan yo.</p></div></div>
       <div class="tournament-list-tools">
@@ -1971,7 +1991,7 @@ td, th { overflow-wrap: anywhere; }
       <div id="tournamentList" class="tournament-list"><div class="tournament-empty"><strong>Lis la poko chaje.</strong><br>Peze “Rafrechi lis la” pou jwenn konpetisyon yo.</div></div>
     </section>
   </section>
-  <section class="tournament-stage" data-t-stage="5">
+  <section class="tournament-stage" data-t-stage="6">
   <section id="tournamentDetail" class="tournament-detail-card" style="display:none">
     <div id="tournamentDetailContent"></div>
     <div class="tournament-tabs" role="tablist">
@@ -1989,7 +2009,7 @@ td, th { overflow-wrap: anywhere; }
     <div class="tournament-admin-row"><input id="tournamentAdminSecret" type="password" autocomplete="off" placeholder="Kle prive administratè — pa pataje li"><button id="tournamentAdminLoad" type="button" class="tournament-secondary">Chèche demann yo</button></div>
     <div id="tournamentAdminEntries" class="tournament-admin-entries"></div>
   </section>
-  <div class="tournament-stage-actions tournament-stage-bottom"><button type="button" class="tournament-secondary" data-t-go="4">← Retounen nan lis tournoi yo</button></div>
+  <div class="tournament-stage-actions tournament-stage-bottom"><button type="button" class="tournament-secondary" data-t-go="5">← Retounen nan lis tournoi yo</button></div>
   </section>
   <div id="tournamentMessage" class="tournament-message" role="status" aria-live="polite"></div>
 </section>
@@ -4633,13 +4653,14 @@ function connectServer(callback) {
                 if (data.type === "tournament_list_result") { renderTournamentList(data.tournaments || []); return; }
                 if (data.type === "tournament_create_result") {
                     tournamentNotice(data.message || (data.ok ? "Tournoi kreye." : "Erè."), !!data.ok);
-                    if (data.ok) { setTournamentStage(4); loadTournamentList(); } return;
+                    if (data.ok) { setTournamentStage(5); loadTournamentList(); } return;
                 }
                 if (data.type === "tournament_rename_result") {
                     tournamentNotice(data.message || (data.ok ? "Non tournoi a modifye." : "Modifikasyon an pa reyisi."), !!data.ok);
                     if (data.ok) { loadTournamentList(); loadTournamentState(activeTournamentId); } return;
                 }
                 if (data.type === "tournament_state_result") { renderTournamentDetail(data.tournament); return; }
+                if (data.type === "tournament_delete_result") { tournamentNotice(data.message || (data.ok ? "Tournoi efase." : "Efasman an pa reyisi."), !!data.ok); if(data.ok){activeTournamentId=null;const panel=document.getElementById("tournamentDetail");if(panel)panel.style.display="none";setTournamentStage(5);loadTournamentList();} return; }
                 if (data.type === "tournament_error") { tournamentNotice(data.message || "Erè tournoi.", false); return; }
                 if (data.type === "tournament_register_result") { tournamentNotice(data.message || (data.ok ? "Demann voye." : "Erè."), !!data.ok); if (data.ok) loadTournamentState(activeTournamentId); return; }
                 if (data.type === "tournament_start_result") { tournamentNotice(data.message || (data.ok ? "Tournoi lanse." : "Erè."), !!data.ok); if (data.ok) loadTournamentState(activeTournamentId); return; }
@@ -6726,7 +6747,7 @@ let tournamentPendingVoice = [];
 let tournamentStage = 1;
 let tournamentCreateConfirmed = false;
 function setTournamentStage(stage){
-  tournamentStage=Math.max(1,Math.min(5,Number(stage)||1));
+  tournamentStage=Math.max(1,Math.min(6,Number(stage)||1));
   document.querySelectorAll("#tournamentScreen [data-t-stage]").forEach(el=>el.classList.toggle("active",Number(el.dataset.tStage)===tournamentStage));
   document.querySelectorAll("#tournamentScreen [data-t-step]").forEach(el=>{
     const n=Number(el.dataset.tStep);el.classList.toggle("active",n===tournamentStage);el.classList.toggle("done",n<tournamentStage);
@@ -6734,8 +6755,8 @@ function setTournamentStage(stage){
   const screen=document.getElementById("tournamentScreen");
   if(screen)screen.classList.toggle("hero-mode",tournamentStage===1);
   const refresh=document.getElementById("tournamentRefresh");
-  if(refresh)refresh.style.visibility=tournamentStage===4?"visible":"hidden";
-  if(tournamentStage===5){const detail=document.getElementById("tournamentDetail");if(detail)detail.style.display="block";}
+  if(refresh)refresh.style.visibility=tournamentStage===5?"visible":"hidden";
+  if(tournamentStage===6){const detail=document.getElementById("tournamentDetail");if(detail)detail.style.display="block";}
   if(screen)screen.scrollIntoView({behavior:"smooth",block:"start"});
 }
 function tournamentValue(id){return document.getElementById(id)?.value??"";}
@@ -6752,7 +6773,7 @@ function buildTournamentConfirmation(){
 document.querySelectorAll("#tournamentScreen [data-t-go]").forEach(b=>b.addEventListener("click",()=>setTournamentStage(b.dataset.tGo)));
 document.querySelectorAll("#tournamentScreen [data-t-step]").forEach(b=>b.addEventListener("click",()=>{
  const n=Number(b.dataset.tStep);
- if(n===2||n===4||(n===5&&activeTournamentId))setTournamentStage(n);
+ if([2,3,4,5].includes(n)||(n===6&&activeTournamentId))setTournamentStage(n);
 }));
 document.getElementById("tournamentConfirmCreate")?.addEventListener("click",()=>{
  tournamentCreateConfirmed=true;document.getElementById("tournamentCreateBtn")?.click();
@@ -6831,11 +6852,12 @@ function renderTournamentDetail(t){
   if(!t)return;
   activeTournamentId=t.tournament_id;
   const panel=document.getElementById("tournamentDetail"),root=document.getElementById("tournamentDetailContent");
-  if(!panel||!root)return;panel.style.display="block";setTournamentStage(5);root.dataset.paymentMethod=String(t.payment_method||"").toLowerCase();
+  if(!panel||!root)return;panel.style.display="block";setTournamentStage(6);root.dataset.paymentMethod=String(t.payment_method||"").toLowerCase();
   const players=t.players||[];
   const matches=t.matches||[];
   const gross=Number(t.gross_collected||0),commission=Number(t.commission||0),pool=Number(t.prize_pool||0);
   const isOrganizer=String(t.organizer_id)===String(currentPlayerId);
+  const canDelete=isOrganizer&&t.status==="registration"&&players.length===0;
   const prizeText=t.prizes?Object.entries(t.prizes).map(([p,v])=>`${p}ye: ${escTournament(v)} ${escTournament(t.currency||"USD")}`).join(" · "):"Pri yo kalkile apre peman verifye.";
   root.innerHTML=`<div class="tournament-detail-head"><div><h2>🏆 ${escTournament(t.title)}</h2><p>Òganizatè: ${escTournament(t.organizer||"")} · Estati: ${escTournament(t.status)}</p><p>Antre: ${escTournament(t.entry_fee)} ${escTournament(t.currency||"USD")} · Metòd: ${escTournament(t.payment_method)}</p>${isOrganizer&&t.status==="registration"?`<div class="tournament-edit-title"><label for="tournamentRenameTitle">Modifye non tournoi a</label><div><input id="tournamentRenameTitle" maxlength="100" value="${escTournament(t.title||"")}" placeholder="Nouvo non tournoi a"><button type="button" data-t-action="rename" data-id="${escTournament(t.tournament_id)}">Sove nouvo non</button></div><small>Se ou menm kòm òganizatè ki ka chanje non an, sèlman anvan tournoi a kòmanse.</small></div>`:""}</div><span class="tournament-pill">${escTournament(t.status)}</span></div>
     <div class="tournament-stat-grid">
@@ -6847,6 +6869,7 @@ function renderTournamentDetail(t){
     <p class="tournament-note">Total peman verifye: ${gross.toFixed(2)} ${escTournament(t.currency||"USD")} · Komisyon: ${commission.toFixed(2)} · Pòtay pri: ${prizeText}</p>
     ${t.status==="registration"&&!isOrganizer?`<div class="tournament-register"><h3>Antre nan tournoi sa a</h3><div class="tournament-join-steps"><strong>Men kijan pou w antre:</strong><ol><li>Verifye frè antre a: <b>${escTournament(t.entry_fee)} ${escTournament(t.currency||"USD")}</b>.</li><li>Peye ak metòd ki make la: <b>${escTournament(t.payment_method||"")}</b>.</li><li>Ekri referans tranzaksyon an; pou MonCash/NatCash, mete foto prèv peman an tou.</li><li>Voye demann lan epi tann verifikasyon an anvan plas ou konfime.</li></ol></div><label for="tournamentPaymentReference">Nimewo tranzaksyon / referans peman</label><input id="tournamentPaymentReference" maxlength="160" required placeholder="Antre referans tranzaksyon an"><label for="tournamentProofFile">Foto prèv peman (obligatwa pou MonCash/NatCash, max 650 KB)</label><input id="tournamentProofFile" type="file" accept="image/png,image/jpeg"><button type="button" class="tournament-primary" data-t-action="register" data-id="${escTournament(t.tournament_id)}">Konfime enfòmasyon mwen epi voye demann lan</button><small class="tournament-note">Demann ou ap rete an atant jiskaske sistèm peman an oswa administratè a verifye li. Pa janm pataje modpas oswa PIN peman ou.</small></div>`:""}
     ${isOrganizer&&t.status==="registration"?`<button class="tournament-primary" data-t-action="start" data-id="${escTournament(t.tournament_id)}">Lanse tournoi a (minimòm 2 jwè verifye)</button>`:""}
+    ${canDelete?`<div class="tournament-delete-zone"><p>Ou ka efase tournoi sa a paske poko gen okenn jwè ki enskri.</p><button type="button" class="tournament-delete-button" data-t-action="delete" data-id="${escTournament(t.tournament_id)}">🗑️ Efacer ce tournoi</button></div>`:""}
     <h3 style="margin-top:22px">Bracket / Match yo</h3>
     <div class="tournament-bracket">${matches.length?matches.map(m=>`<div class="tournament-match"><strong>Round ${m.round_no} · Match ${m.match_no}</strong><p>${escTournament(m.player1_name||m.player1_id||"BYE")} vs ${escTournament(m.player2_name||m.player2_id||"BYE")}</p><small>Estati: ${escTournament(m.status==="finished"?"Fini":m.status==="playing"?"Ap jwe":"Ap tann")} ${m.winner_id?" · Gayan: "+escTournament(m.winner_id):""}</small>
       ${m.status!=="finished"&&String(m.player1_id)===String(currentPlayerId)||m.status!=="finished"&&String(m.player2_id)===String(currentPlayerId)?`<button data-t-action="match" data-id="${escTournament(t.tournament_id)}" data-match="${escTournament(m.match_id)}">Antre nan match</button>`:""}
@@ -7028,7 +7051,7 @@ document.getElementById("tournamentCreateBtn")?.addEventListener("click",()=>{
   if(!title){tournamentNotice("Ekri non tournoi a anvan ou kreye li.",false);titleInput?.focus();return;}
   const shares={"1":Number(document.getElementById("tournamentPrize1").value),"2":Number(document.getElementById("tournamentPrize2").value),"3":Number(document.getElementById("tournamentPrize3").value)};
   if(shares["1"]+shares["2"]+shares["3"]!==100){tournamentNotice("Distribisyon pri yo dwe egal 100%.",false);return;}
-  if(!tournamentCreateConfirmed){buildTournamentConfirmation();setTournamentStage(3);return;}
+  if(!tournamentCreateConfirmed){buildTournamentConfirmation();setTournamentStage(4);return;}
   tournamentCreateConfirmed=false;
   if(!tournamentSend("tournament_create",{title,entry_fee:document.getElementById("tournamentFee").value,currency:document.getElementById("tournamentCurrency").value,payment_method:document.getElementById("tournamentMethod").value,commission_percent:document.getElementById("tournamentCommission").value,board_size:Number(document.getElementById("tournamentBoard").value),duration_seconds:Number(document.getElementById("tournamentDuration").value),prize_shares:shares})){return;}
 });
@@ -7051,7 +7074,8 @@ document.getElementById("tournamentScreen")?.addEventListener("click",e=>{
   const action=btn.dataset.tAction,id=btn.dataset.id;
   if(action==="detail"){activeTournamentId=id;loadTournamentState(id);}
   if(action==="register")sendTournamentRegister(id);
-  if(action==="rename"){
+  if(action==="delete"){if(!confirm("Èske ou sèten ou vle efase tournoi sa a? Aksyon sa a pa ka anile."))return;tournamentSend("tournament_delete",{tournament_id:id});}
+   if(action==="rename"){
     const title=document.getElementById("tournamentRenameTitle")?.value?.trim()||"";
     if(!title){tournamentNotice("Ekri nouvo non tournoi a.",false);document.getElementById("tournamentRenameTitle")?.focus();return;}
     tournamentSend("tournament_rename",{tournament_id:id,title});
