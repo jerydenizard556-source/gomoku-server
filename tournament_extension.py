@@ -811,3 +811,22 @@ def tournament_chat(tournament_id: str, player_id: str, username: str, message: 
             (mid,tournament_id,str(player_id),username[:50],msg,int(time.time())),
         )
     return {"ok":True,"message_id":mid,"message":msg}
+
+
+
+def rename_tournament(tournament_id: str, organizer_id: str, title: str) -> dict:
+    """Rename a tournament only by its organizer before it starts."""
+    clean_title = str(title or "").strip()
+    if not clean_title or len(clean_title) > 100:
+        raise TournamentError("Non tournoi a obligatwa (1 a 100 karaktè).")
+    with _db() as conn:
+        t = _get_tournament(conn, str(tournament_id))
+        if str(t["organizer_id"]) != str(organizer_id):
+            raise TournamentError("Se òganizatè a sèlman ki ka modifye non tournoi a.")
+        if t["status"] != "registration":
+            raise TournamentError("Ou ka modifye non an sèlman anvan tournoi a kòmanse.")
+        conn.execute(
+            "UPDATE gomoku_tournaments SET title=%s WHERE tournament_id=%s",
+            (clean_title, str(tournament_id)),
+        )
+    return {"ok": True, "title": clean_title, "message": "Non tournoi a modifye avèk siksè."}
