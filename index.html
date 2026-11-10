@@ -1084,6 +1084,69 @@ td, th { overflow-wrap: anywhere; }
 }
 </style>
 
+
+<style id="tournament-simple-clear">
+/* Final refinement: clear, simple tournament-only presentation */
+.tournament-page{max-width:1080px!important;padding:22px!important;background:#0d1727!important;border:1px solid #263a54!important;border-radius:18px!important;box-shadow:0 14px 38px rgba(0,0,0,.22)!important}
+.tournament-top{padding:5px 0 18px!important;border-color:#293b53!important}
+.tournament-top>div small{letter-spacing:2.5px!important;color:#d8b766!important}
+.tournament-top h1{font-size:30px!important;letter-spacing:0!important}
+.tournament-subtitle{margin:6px 0 0!important;color:#aebdd0!important;font-size:13px!important}
+.tournament-page .back-button,.tournament-page .tournament-refresh{border-radius:9px!important;background:#17263b!important;color:#e8d39c!important;border:1px solid #354b68!important}
+.tournament-layout{gap:16px!important;margin-top:18px!important}
+.tournament-create-card,.tournament-list-card,.tournament-detail-card,.tournament-admin-card{padding:19px!important;border-radius:14px!important;background:#121f32!important;border:1px solid #2b405b!important;box-shadow:0 8px 22px rgba(0,0,0,.15)!important}
+.tournament-create-card:before,.tournament-list-card:before,.tournament-detail-card:before{display:none!important}
+.tournament-section-title{margin-bottom:17px!important;gap:11px!important}
+.tournament-section-title>span{width:34px!important;height:34px!important;flex-basis:34px!important;border-radius:10px!important;background:#d8b766!important;color:#182132!important;box-shadow:none!important}
+.tournament-section-title h2{font-size:17px!important;margin-bottom:4px!important}
+.tournament-section-title p{font-size:12px!important;line-height:1.45!important;color:#aab9cd!important}
+.tournament-form-grid{gap:12px!important}
+.tournament-form-grid label,.tournament-prizes label{font-size:12px!important;gap:6px!important;color:#e0e8f2!important}
+.tournament-form-grid label small{font-size:10px;color:#91a4bd;font-weight:500;line-height:1.4}
+.tournament-form-grid input,.tournament-form-grid select,.tournament-admin-row input,.tournament-chat-compose input,.tournament-register input{min-height:40px!important;padding:10px 11px!important;border-radius:8px!important;background:#091525!important;border:1px solid #354a65!important}
+.tournament-form-grid input:focus,.tournament-form-grid select:focus{border-color:#d8b766!important;box-shadow:0 0 0 2px rgba(216,183,102,.12)!important}
+.tournament-prizes{padding:12px!important;gap:9px!important;border-radius:10px!important;background:#0c192a!important;border:1px solid #31455e!important}
+.tournament-prizes>strong{font-size:12px!important;color:#e8ce8e!important}
+.tournament-prizes small{font-size:10px!important}
+.tournament-primary{min-height:44px!important;margin-top:15px!important;padding:12px!important;border-radius:9px!important;background:#d8b766!important;color:#1b1b18!important;box-shadow:none!important;font-size:13px!important}
+.tournament-primary:hover{filter:brightness(1.06)!important;transform:translateY(-1px)!important}
+.tournament-list{gap:9px!important}
+.tournament-empty{padding:22px 14px!important;border-radius:10px!important;background:#0c192a!important;border-color:#40536d!important;font-size:12px!important;line-height:1.6}
+.tournament-item{padding:13px!important;border-radius:10px!important;background:#0c192a!important;border:1px solid #31465f!important}
+.tournament-item:hover{transform:none!important;border-color:#b99a55!important}
+.tournament-item h3{font-size:15px!important}
+.tournament-item p{font-size:11px!important;line-height:1.5!important}
+.tournament-pill{font-size:9px!important}
+.tournament-actions{gap:7px!important}
+.tournament-actions button,.tournament-match button{padding:9px 11px!important;border-radius:8px!important;font-size:11px!important}
+.tournament-actions .gold{background:#d8b766!important;color:#1b1b18!important}
+.tournament-detail-card{margin-top:16px!important}
+.tournament-detail-head h2{font-size:20px!important}
+.tournament-stat-grid{gap:8px!important}
+.tournament-stat{padding:11px!important;border-radius:9px!important;background:#0c192a!important}
+.tournament-stat strong{font-size:17px!important}
+.tournament-register,.tournament-join-steps{padding:12px!important;border-radius:10px!important;background:#0c192a!important}
+.tournament-join-steps{font-size:12px!important;line-height:1.6!important}
+.tournament-edit-title{padding:11px!important;border-radius:10px!important}
+.tournament-tabs{margin:15px 0 12px!important}
+.tournament-tabs button{font-size:12px!important;padding:10px 12px!important}
+.tournament-admin-card{margin-top:16px!important}
+.tournament-admin-card h2{font-size:16px!important}
+.tournament-admin-card p,.tournament-note{font-size:11px!important;line-height:1.55!important}
+.tournament-message{font-size:12px!important}
+@media(max-width:850px){.tournament-layout{grid-template-columns:1fr!important}}
+@media(max-width:560px){
+ .tournament-page{padding:12px!important;margin:8px auto 20px!important}
+ .tournament-top{display:grid!important;grid-template-columns:1fr 1fr!important;align-items:center}
+ .tournament-top>div{grid-column:1/-1;grid-row:1;text-align:center}
+ .tournament-top .back-button{grid-column:1;grid-row:2;justify-self:start}
+ .tournament-top .tournament-refresh{grid-column:2;grid-row:2;justify-self:end}
+ .tournament-top h1{font-size:25px!important}
+ .tournament-create-card,.tournament-list-card,.tournament-detail-card,.tournament-admin-card{padding:14px!important}
+ .tournament-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+</style>
+
 </head>
 
 <body>
@@ -1530,20 +1593,20 @@ td, th { overflow-wrap: anywhere; }
 <section id="tournamentScreen" class="screen tournament-page">
   <header class="tournament-top">
     <button class="back-button" id="tournamentBack" type="button">← Retounen</button>
-    <div><small>MR_JERY ARENA</small><h1>🏆 Tournoi</h1></div>
+    <div><small>MR_JERY ARENA</small><h1>🏆 Tournois</h1><p class="tournament-subtitle">Kreye yon konpetisyon oswa antre nan youn ki deja disponib.</p></div>
     <button class="tournament-refresh" id="tournamentRefresh" type="button">⟳ Actualiser</button>
   </header>
 
   <div class="tournament-layout">
     <section class="tournament-create-card">
-      <div class="tournament-section-title"><span>01</span><div><h2>Kreye yon tournoi</h2><p>Òganizatè a fikse frè antre, komisyon ak rekonpans yo.</p></div></div>
+      <div class="tournament-section-title"><span>1</span><div><h2>Kreye yon tournoi</h2><p>Ranpli enfòmasyon yo, epi peze bouton Kreye a.</p></div></div>
       <div class="tournament-form-grid">
         <label class="tournament-wide">Non tournoi a (obligatwa)<input id="tournamentTitle" maxlength="100" required placeholder="Egzanp: MR_Jery Championship"><small class="tournament-note">Tout jwè ap wè non sa. Òganizatè a ka chanje l anvan tournoi a kòmanse.</small></label>
-        <label>Frè antre<input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"></label>
+        <label>Frè antre chak jwè<input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><small>Montan chak patisipan dwe peye pou antre.</small></label>
         <label>Deviz<select id="tournamentCurrency"><option value="USD">USD ($)</option><option value="HTG">HTG (Gourdes)</option></select></label>
         <label>Metòd peman<select id="tournamentMethod"><option value="tranzak">Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select></label>
-        <label>Komisyon (%)<input id="tournamentCommission" type="number" min="0" max="20" step="0.01" value="10"></label>
-        <label>Gwosè tablo<select id="tournamentBoard"><option value="15">15 × 15</option><option value="19">19 × 19</option><option value="20">20 × 20</option></select></label>
+        <label>Komisyon òganizatè (%)<input id="tournamentCommission" type="number" min="0" max="20" step="0.01" value="10"><small>Pousantaj ki dedui sou lajan tournoi a.</small></label>
+        <label>Gwosè tablo Gomoku<select id="tournamentBoard"><option value="15">15 × 15</option><option value="19">19 × 19</option><option value="20">20 × 20</option></select></label>
         <label>Dire match<select id="tournamentDuration"><option value="60">1 minit</option><option value="120">2 minit</option><option value="180">3 minit</option><option value="300">5 minit</option><option value="600" selected>10 minit</option><option value="900">15 minit</option><option value="1200">20 minit</option><option value="1800">30 minit</option></select></label>
         <div class="tournament-wide tournament-prizes">
           <strong>Distribisyon pri yo (%)</strong>
@@ -1557,8 +1620,8 @@ td, th { overflow-wrap: anywhere; }
     </section>
 
     <section class="tournament-list-card">
-      <div class="tournament-section-title"><span>02</span><div><h2>Tournoi disponib</h2><p>Enskri epi tann verifikasyon peman an.</p></div></div>
-      <div id="tournamentList" class="tournament-list"><div class="tournament-empty">Peze Actualiser pou chèche tournoi yo.</div></div>
+      <div class="tournament-section-title"><span>2</span><div><h2>Antre nan yon tournoi</h2><p>Chwazi yon tournoi nan lis la pou li kondisyon yo epi enskri.</p></div></div>
+      <div id="tournamentList" class="tournament-list"><div class="tournament-empty"><strong>Pa gen lis ki chaje ankò.</strong><br>Peze “Actualiser” pou wè tournoi ki disponib yo.</div></div>
     </section>
   </div>
 
@@ -1585,7 +1648,7 @@ td, th { overflow-wrap: anywhere; }
   </section>
 
   <section class="tournament-admin-card">
-    <h2>🔐 Verifikasyon administratè</h2>
+    <h2>🔐 Zòn administratè</h2>
     <p>Antre kle prive administratè a pou verifye prèv MonCash/NatCash. Tranzak dwe konfime atravè webhook Wallet ki siyen; pa gen bouton ki ka fo konfimasyon Tranzak.</p>
     <div class="tournament-admin-row"><input id="tournamentAdminSecret" type="password" autocomplete="off" placeholder="Kle administratè (pa pataje li)"><button id="tournamentAdminLoad" type="button" class="tournament-secondary">Chèche demann yo</button></div>
     <div id="tournamentAdminEntries" class="tournament-admin-entries"></div>
