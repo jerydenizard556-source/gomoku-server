@@ -584,7 +584,7 @@ async def handler(ws):
                     acct=connected_accounts.get(ws)
                     try:
                         if not acct: raise tournament.TournamentError('Konekte pou enskri.')
-                        result=await asyncio.to_thread(tournament.register_entry,str(d.get('tournament_id') or ''),str(acct['player_id']),str(d.get('payment_reference') or ''),str(d.get('proof_reference') or ''))
+                        result=await asyncio.to_thread(tournament.register_entry,str(d.get('tournament_id') or ''),str(acct['player_id']),str(d.get('payment_reference') or ''),str(d.get('proof_reference') or ''),bool(d.get('terms_accepted',False)))
                         await send(ws,{'type':'tournament_register_result',**result})
                     except Exception as ex: await send(ws,{'type':'tournament_register_result','ok':False,'message':str(ex)})
                     continue
