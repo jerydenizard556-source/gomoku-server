@@ -1958,6 +1958,7 @@ td, th { overflow-wrap: anywhere; }
       <div class="create-pro-fields">
         <label class="create-pro-field create-pro-field-wide"><span>NON TOURNOI A</span><input id="tournamentTitle" maxlength="100" required placeholder="Egzanp: MR_Jery Championship"><small>Chwazi yon non ki fasil pou jwè yo rekonèt.</small></label>
         <div class="create-pro-field"><label for="tournamentFee">FRÈ PATISIPASYON</label><div class="create-pro-money"><input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><select id="tournamentCurrency" aria-label="Monnen"><option value="USD">USD $</option><option value="HTG">HTG G</option></select></div><small>Pri chak jwè ap peye pou antre.</small></div>
+        <div class="create-pro-field"><label for="tournamentCapacity">KANTITE JWÈ MAXIMUM</label><input id="tournamentCapacity" type="number" min="2" max="10000" step="1" value="10"><small>Chwazi kantite maksimòm jwè ki ka enskri.</small></div>
         <div class="create-pro-field"><label for="tournamentMethod">MWAYEN PEMAN POU ENSKRIPSYON</label><select id="tournamentMethod"><option value="tranzak">Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select><small>Chwazi mwayen peman ki disponib pou tounwa sa a.</small></div>
         <div class="create-pro-field"><label for="tournamentCommission">AVANTAJ ÒGANIZATÈ A (%)</label><input id="tournamentCommission" type="number" min="2" max="15" step="1" value="10"><small>Ou ka chwazi ant 2% ak 15%. Rès la sèvi pou prim gayan yo.</small></div>
         <div class="create-pro-field"><label for="tournamentWinnerCount">KONBYEN GAYAN?</label><select id="tournamentWinnerCount"><option value="1">1 gayan</option><option value="2">2 gayan</option><option value="3" selected>3 gayan</option></select><small>Chwazi konbyen plas k ap resevwa prim.</small></div>
@@ -1965,6 +1966,7 @@ td, th { overflow-wrap: anywhere; }
         <div class="create-pro-field" id="tournamentPrize2Wrap"><label for="tournamentPrize2">DEZYÈM PLAS (%)</label><input id="tournamentPrize2" type="number" min="0" max="40" step="1" value="20"></div>
         <div class="create-pro-field" id="tournamentPrize3Wrap"><label for="tournamentPrize3">TWAZYÈM PLAS (%)</label><input id="tournamentPrize3" type="number" min="0" max="40" step="1" value="10"></div>
       </div>
+      <div class="create-pro-included" style="margin-top:12px"><span>3%</span><div><strong>Frè kreyasyon platfòm: <b id="tournamentCreationFeeAmount">—</b></strong><small id="tournamentCreationFeeDetails">Kalkile otomatikman selon pri jwè ak kantite jwè maksimòm.</small></div></div>
       <div class="create-pro-included"><span>✓</span><div><strong>Kondisyon finansye yo ap rete fiks</strong><small>Avantaj òganizatè a limite ant 2% ak 15%. Pataj prim yo dwe totalize 100% nan fon prim lan epi yo pa ka modifye apre premye enskripsyon an.</small></div></div>
       <div class="create-pro-footer"><div><small>ETAP 1 SOU 2</small><strong>Prèske pare pou lanse</strong></div><button class="tournament-primary create-pro-submit" id="tournamentCreateBtn" type="button">Kontinye <span>→</span></button></div>
     </div>
@@ -6763,6 +6765,9 @@ function setTournamentStage(stage){
   if(screen)screen.scrollIntoView({behavior:"smooth",block:"start"});
 }
 function tournamentValue(id){return document.getElementById(id)?.value??"";}
+const TOURNAMENT_PLATFORM_CREATION_RATE=0.03;
+function calculateTournamentCreationFee(){const entry=Math.max(0,Number(tournamentValue("tournamentFee"))||0),capacity=Math.max(0,Math.floor(Number(tournamentValue("tournamentCapacity"))||0)),gross=entry*capacity;return {gross,fee:Math.round((gross*TOURNAMENT_PLATFORM_CREATION_RATE+Number.EPSILON)*100)/100};}
+function updateTournamentCreationFeePreview(){const amount=document.getElementById("tournamentCreationFeeAmount"),details=document.getElementById("tournamentCreationFeeDetails");if(!amount||!details)return;const entry=Number(tournamentValue("tournamentFee")),capacity=Number(tournamentValue("tournamentCapacity"));if(!Number.isFinite(entry)||entry<=0||!Number.isInteger(capacity)||capacity<2){amount.textContent="—";details.textContent="Antre yon pri valab ak omwen 2 jwè.";return;}const c=calculateTournamentCreationFee(),currency=tournamentValue("tournamentCurrency");amount.textContent=c.fee.toFixed(2)+" "+currency;details.textContent="Fon prevwa: "+c.gross.toFixed(2)+" "+currency+" × 3%. Se kalkil frè a; peman an poko konekte ak sistèm peman an.";}
 function tournamentWinnerCount(){return Math.max(1,Math.min(3,Number(tournamentValue("tournamentWinnerCount"))||1));}
 function syncTournamentPrizeFields(){
  const count=tournamentWinnerCount();
@@ -6803,8 +6808,11 @@ function buildTournamentConfirmation(){
  const root=document.getElementById("tournamentConfirmSummary");
  if(root)root.innerHTML=rows.map(([k,v])=>'<div><small>'+escTournament(k)+'</small><strong>'+escTournament(v)+'</strong></div>').join("");
 }
+["tournamentFee","tournamentCapacity","tournamentCurrency"].forEach(id=>document.getElementById(id)?.addEventListener("input",updateTournamentCreationFeePreview));
+document.getElementById("tournamentCurrency")?.addEventListener("change",updateTournamentCreationFeePreview);
 document.getElementById("tournamentWinnerCount")?.addEventListener("change",syncTournamentPrizeFields);
 syncTournamentPrizeFields();
+updateTournamentCreationFeePreview();
 document.querySelectorAll("#tournamentScreen [data-t-go]").forEach(b=>b.addEventListener("click",()=>setTournamentStage(b.dataset.tGo)));
 document.querySelectorAll("#tournamentScreen [data-t-step]").forEach(b=>b.addEventListener("click",()=>{
  const n=Number(b.dataset.tStep);
@@ -7087,10 +7095,12 @@ document.getElementById("tournamentCreateBtn")?.addEventListener("click",()=>{
   const titleInput=document.getElementById("tournamentTitle"),title=titleInput?.value?.trim()||"";
   if(!title){tournamentNotice("Ekri non tournoi a anvan ou kreye li.",false);titleInput?.focus();return;}
   if(!validateTournamentPayoutSettings())return;
-  const shares=getTournamentPrizeShares();
+   const capacity=Number(tournamentValue("tournamentCapacity"));
+   if(!Number.isInteger(capacity)||capacity<2||capacity>10000){tournamentNotice("Kantite jwè a dwe ant 2 ak 10,000.",false);return;}
+   const shares=getTournamentPrizeShares();
   if(!tournamentCreateConfirmed){buildTournamentConfirmation();setTournamentStage(4);return;}
   tournamentCreateConfirmed=false;
-  if(!tournamentSend("tournament_create",{title,entry_fee:document.getElementById("tournamentFee").value,currency:document.getElementById("tournamentCurrency").value,payment_method:document.getElementById("tournamentMethod").value,commission_percent:document.getElementById("tournamentCommission").value,board_size:Number(document.getElementById("tournamentBoard").value),duration_seconds:Number(document.getElementById("tournamentDuration").value),prize_shares:shares})){return;}
+  if(!tournamentSend("tournament_create",{title,entry_fee:document.getElementById("tournamentFee").value,currency:document.getElementById("tournamentCurrency").value,payment_method:document.getElementById("tournamentMethod").value,commission_percent:document.getElementById("tournamentCommission").value,board_size:Number(document.getElementById("tournamentBoard").value),duration_seconds:Number(document.getElementById("tournamentDuration").value),prize_shares:shares,max_participants:capacity})){return;}
 });
 document.getElementById("tournamentAdminLoad")?.addEventListener("click",loadTournamentAdminEntries);
 document.getElementById("tournamentChatSend")?.addEventListener("click",()=>{
