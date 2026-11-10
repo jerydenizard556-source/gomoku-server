@@ -1,5 +1,127 @@
 import asyncio,json,secrets,string,time,os,hashlib,hmac,re
 import websockets, psycopg
+
+import tournament_extension as tournament_api
+
+try:
+    tournament_api.init_tournament_schema()
+    print('MR Jery Tournament database ready.')
+except Exception as exc:
+    print('Tournament database initialization error:', repr(exc))
+
+
+def tournament_account(ws):
+    account = connected_accounts.get(ws)
+    return account if account and account.get('player_id') else None
+
+
+def tournament_has_entry(tournament_id, player_id, verified_only=False):
+    return any(
+        str(m.get('player_id')) == str(player_id)
+        and (not verified_only or m.get('payment_status') == 'verified')
+        for m in tournament_api.tournament_members(str(tournament_id))
+    )
+
+
+async def tournament_reply(ws, response_type, function, *args):
+    try:
+        result = await asyncio.to_thread(function, *args)
+        await send(ws, {'type': response_type, 'success': True, 'data': result})
+    except tournament_api.TournamentError as exc:
+        await send(ws, {'type': response_type, 'success': False, 'message': str(exc)})
+    except Exception as exc:
+        print('Tournament request error:', repr(exc))
+        await send(ws, {'type': response_type, 'success': False, 'message': 'Erè nan sistèm tounwa a.'})
+
+
+async def handle_tournament_message(ws, data, kind):
+    account = tournament_account(ws)
+    if not account:
+        return await send(ws, {'type': kind + '_result', 'success': False, 'message': 'Konekte sou kont ou anvan.'})
+    pid = str(account['player_id'])
+    tid = str(data.get('tournament_id') or '').strip()
+
+    if kind == 'tournament_create':
+        try:
+            result = await asyncio.to_thread(
+                tournament_api.create_tournament, pid, str(data.get('title') or ''),
+                data.get('entry_fee'), str(data.get('payment_method') or ''),
+                data.get('commission_percent', 0), int(data.get('board_size', 15)),
+                int(data.get('duration_seconds', 600)), data.get('prize_shares'),
+                str(data.get('currency') or 'USD').upper()
+            )
+            await send(ws, {'type': 'tournament_create_result', 'success': True, 'data': result})
+        except tournament_api.TournamentError as exc:
+            await send(ws, {'type': 'tournament_create_result', 'success': False, 'message': str(exc)})
+        except (TypeError, ValueError):
+            await send(ws, {'type': 'tournament_create_result', 'success': False, 'message': 'Paramèt kreyasyon tounwa yo pa valid.'})
+        except Exception as exc:
+            print('Tournament create error:', repr(exc))
+            await send(ws, {'type': 'tournament_create_result', 'success': False, 'message': 'Erè pandan kreyasyon tounwa a.'})
+
+    elif kind == 'tournament_register':
+        proof = str(data.get('proof_data') or '').strip()
+        if proof.lower().startswith(('http://', 'https://')):
+            return await send(ws, {'type': 'tournament_register_result', 'success': False, 'message': 'Prèv peman an dwe yon referans fichye prive, pa yon URL piblik.'})
+        await tournament_reply(ws, 'tournament_register_result', tournament_api.register_entry,
+                               tid, pid, str(data.get('payment_reference') or '')[:200], proof)
+
+    elif kind == 'tournament_summary':
+        await tournament_reply(ws, 'tournament_summary_result', tournament_api.tournament_summary, tid)
+
+    elif kind == 'tournament_members':
+        try:
+            members = await asyncio.to_thread(tournament_api.tournament_members, tid)
+            safe = [{'payment_status': m.get('payment_status'),
+                     'created_at': m.get('created_at'), 'verified_at': m.get('verified_at')}
+                    for m in members]
+            await send(ws, {'type': 'tournament_members_result', 'success': True,
+                            'data': {'members': safe, 'count': len(safe)}})
+        except tournament_api.TournamentError as exc:
+            await send(ws, {'type': 'tournament_members_result', 'success': False, 'message': str(exc)})
+        except Exception as exc:
+            print('Tournament members error:', repr(exc))
+            await send(ws, {'type': 'tournament_members_result', 'success': False, 'message': 'Erè pandan lekti lis patisipan yo.'})
+
+    elif kind == 'tournament_start':
+        await tournament_reply(ws, 'tournament_start_result', tournament_api.start_tournament, tid, pid)
+
+    elif kind == 'tournament_chat':
+        try:
+            if not tournament_has_entry(tid, pid):
+                raise tournament_api.TournamentError('Ou dwe enskri nan tounwa sa a pou itilize chat la.')
+            await tournament_reply(ws, 'tournament_chat_result', tournament_api.tournament_chat,
+                                   tid, pid, account.get('username', 'Joueur'), str(data.get('message') or ''))
+        except tournament_api.TournamentError as exc:
+            await send(ws, {'type': 'tournament_chat_result', 'success': False, 'message': str(exc)})
+        except Exception as exc:
+            print('Tournament chat access error:', repr(exc))
+            await send(ws, {'type': 'tournament_chat_result', 'success': False, 'message': 'Erè pandan verifikasyon aksè chat la.'})
+
+    elif kind == 'tournament_chat_history':
+        await tournament_reply(ws, 'tournament_chat_history_result',
+                               tournament_api.get_tournament_chat, tid, data.get('limit', 50))
+
+    elif kind == 'tournament_voice_request':
+        try:
+            if not tournament_has_entry(tid, pid, verified_only=True):
+                raise tournament_api.TournamentError('Se sèlman jwè ki verifye peman yo ki ka mande mikwo.')
+            await tournament_reply(ws, 'tournament_voice_request_result',
+                                   tournament_api.request_spectator_mic, tid, pid)
+        except tournament_api.TournamentError as exc:
+            await send(ws, {'type': 'tournament_voice_request_result', 'success': False, 'message': str(exc)})
+        except Exception as exc:
+            print('Tournament voice access error:', repr(exc))
+            await send(ws, {'type': 'tournament_voice_request_result', 'success': False, 'message': 'Erè pandan verifikasyon demann mikwo a.'})
+
+    elif kind == 'tournament_voice_decision':
+        await tournament_reply(ws, 'tournament_voice_decision_result',
+                               tournament_api.decide_spectator_mic, tid,
+                               str(data.get('player_id') or ''), pid, bool(data.get('approved', False)))
+
+    elif kind == 'tournament_admin_config':
+        await tournament_reply(ws, 'tournament_admin_config_result', tournament_api.admin_config)
+
 from websockets.http11 import Headers, Response
 HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
 DATABASE_URL=os.environ.get('DATABASE_URL'); db=None
@@ -499,7 +621,14 @@ async def handler(ws):
             except: await send(ws,{'type':'error','message':'JSON invalid.'});continue
             try:
                 t=d.get('type')
-                if t=='ttt_create': await ttt_create(ws)
+                if t in {
+                    'tournament_create', 'tournament_register', 'tournament_summary',
+                    'tournament_members', 'tournament_start', 'tournament_chat',
+                    'tournament_chat_history', 'tournament_voice_request',
+                    'tournament_voice_decision', 'tournament_admin_config'
+                }:
+                    await handle_tournament_message(ws, d, t)
+                elif t=='ttt_create': await ttt_create(ws)
                 elif t=='ttt_join': await ttt_join(ws,d.get('room'))
                 elif t=='ttt_move': await ttt_move(ws,d.get('room'),d.get('index'))
                 elif t=='restore_session':await restore_session(ws,d.get('account_token'))
