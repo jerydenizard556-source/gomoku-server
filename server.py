@@ -564,6 +564,14 @@ async def handler(ws):
                         await send(ws,{'type':'tournament_create_result',**result})
                     except Exception as ex: await send(ws,{'type':'tournament_create_result','ok':False,'message':str(ex)})
                     continue
+                elif t=='tournament_delete':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte pou efase yon tournoi.')
+                        result=await asyncio.to_thread(tournament.delete_tournament,str(d.get('tournament_id') or ''),str(acct['player_id']))
+                        await send(ws,{'type':'tournament_delete_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_delete_result','ok':False,'message':str(ex)})
+                    continue
                 elif t=='tournament_rename':
                     acct=connected_accounts.get(ws)
                     try:
