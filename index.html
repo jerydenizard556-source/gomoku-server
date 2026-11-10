@@ -6799,6 +6799,8 @@ function buildTournamentConfirmation(){
  const rows=[
   ["Non tournoi",tournamentValue("tournamentTitle")],
   ["Frè patisipasyon",tournamentValue("tournamentFee")+" "+tournamentValue("tournamentCurrency")],
+   ["Kantite jwè maksimòm",tournamentValue("tournamentCapacity")],
+   ["Frè platfòm (3%)",calculateTournamentCreationFee().fee.toFixed(2)+" "+tournamentValue("tournamentCurrency")],
   ["Mwayen peman",tournamentMethodLabel(tournamentValue("tournamentMethod"))],
   ["Avantaj òganizatè",tournamentValue("tournamentCommission")+"% (2–15%)"],
   ["Kantite gayan",tournamentWinnerCount()],
