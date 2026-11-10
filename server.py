@@ -196,9 +196,12 @@ async def sync_tournament_result(r):
     if not mid or not tid or not r.get('game_over') or r.get('_tournament_result_recorded'): return
     winner_no=r.get('winner')
     winner_id=r.get('players',{}).get(winner_no,{}).get('player_id') if winner_no else None
-    if not winner_id: return
     try:
-        await asyncio.to_thread(tournament.record_match_result,str(tid),str(mid),str(winner_id))
+        if not winner_id and r.get('draw'):
+            await asyncio.to_thread(tournament.record_match_draw,str(tid),str(mid))
+        elif winner_id:
+            await asyncio.to_thread(tournament.record_match_result,str(tid),str(mid),str(winner_id))
+        else: return
         r['_tournament_result_recorded']=True
     except Exception as ex: print('Tournament result update error:',repr(ex))
 
@@ -366,6 +369,9 @@ async def timer_loop():
         for r in list(rooms.values()):
             if r['game_over'] or r['rematch_request'] is not None:continue
             b,red=r['black_time'],r['red_time'];update_timer(r)
+            if r.get('game_over'):
+                await record_result(r)
+                await sync_tournament_result(r)
             if b!=r['black_time'] or red!=r['red_time'] or r['game_over']:await broadcast(r)
 async def restore_session(ws, token):
     token=str(token or '')
