@@ -27,8 +27,8 @@ Integration:
 Environment:
 TOURNAMENT_MIN_ENTRY_FEE=1
 TOURNAMENT_MAX_ENTRY_FEE=1000
-TOURNAMENT_MIN_COMMISSION_PERCENT=0
-TOURNAMENT_MAX_COMMISSION_PERCENT=20
+TOURNAMENT_MIN_COMMISSION_PERCENT=2
+TOURNAMENT_MAX_COMMISSION_PERCENT=15
 TOURNAMENT_ADMIN_SECRET=<long random secret>
 DATABASE_URL=<PostgreSQL URL>
 
@@ -53,8 +53,8 @@ ADMIN_SECRET = os.getenv("TOURNAMENT_ADMIN_SECRET", "").strip()
 
 MIN_FEE = Decimal(os.getenv("TOURNAMENT_MIN_ENTRY_FEE", "1"))
 MAX_FEE = Decimal(os.getenv("TOURNAMENT_MAX_ENTRY_FEE", "1000"))
-MIN_COMMISSION = Decimal(os.getenv("TOURNAMENT_MIN_COMMISSION_PERCENT", "2"))
-MAX_COMMISSION = Decimal(os.getenv("TOURNAMENT_MAX_COMMISSION_PERCENT", "15"))
+MIN_COMMISSION = Decimal("2")
+MAX_COMMISSION = Decimal("15")
 
 PAYMENT_METHODS = {"tranzak", "moncash", "natcash"}
 BOARD_SIZES = {15, 19, 20}
@@ -755,13 +755,12 @@ def register_entry(tournament_id: str, player_id: str,
         if t["status"]!="registration": raise TournamentError("Registration is closed.")
         if not proof_data and t["payment_method"] in {"moncash","natcash"}:
             raise TournamentError("A payment proof image is required for this payment method.")
+        accepted_at=int(time.time())
         terms_snapshot={
             "title":t["title"],"entry_fee":str(t["entry_fee"]),"currency":t["currency"],
             "payment_method":t["payment_method"],"commission_percent":str(t["commission_percent"]),
-            "prize_shares":t["prize_shares"],"accepted_at":int(time.time())
+            "prize_shares":t["prize_shares"],"accepted_at":accepted_at
         }
-        accepted_at=int(time.time())
-        terms_snapshot["accepted_at"]=accepted_at
         entry_id="entry_"+secrets.token_urlsafe(12).replace("-","_")
         try:
             conn.execute(
