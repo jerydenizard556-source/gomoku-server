@@ -6525,7 +6525,9 @@ async function startWalletDeposit(){
     walletNotice("Peman an kreye. Nap ouvri paj Tranzak la...",true);window.location.assign(d.payment_url);
   }catch(e){walletNotice(e.message||"Depo a pa t kapab kreye.");setWalletBusy(false);}
 }
+let walletQuoteRequestVersion=0;
 async function getWalletQuote(){
+  const requestVersion=++walletQuoteRequestVersion;
   const from=document.getElementById("walletExchangeFrom").value,to=document.getElementById("walletExchangeTo").value,amount=Number(document.getElementById("walletExchangeAmount").value);
   const quoteBox=document.getElementById("walletExchangeQuote");
   const confirmBtn=document.getElementById("walletExchangeConfirmBtn");
@@ -6535,6 +6537,7 @@ async function getWalletQuote(){
   setWalletBusy(true);walletNotice("⏳ Nap mande to aktyèl la...");
   try{
     const q=await walletRequest(`/fx/quote?from_currency=${encodeURIComponent(from)}&to_currency=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`);
+    if(requestVersion!==walletQuoteRequestVersion)return;
     if(!q.quote_id||!Number.isFinite(Number(q.to_amount)))throw new Error("Sèvè a pa retounen yon kalkil konplè.");
     walletQuoteId=q.quote_id;
     const rate=Number(q.customer_rate);
@@ -6542,8 +6545,8 @@ async function getWalletQuote(){
     const fees=String(q.fees_disclosed||"").trim();
     quoteBox.textContent=`${money(amount,from)} = ${money(q.to_amount,to)}. ${rateText}${fees?fees+" ":""}Kalkil la baze sou to Tranzak la. Konfimasyon valab pandan 5 minit.`;
     confirmBtn.disabled=false;walletNotice("Verifye montan final la anvan ou konfime.",true);
-  }catch(e){walletQuoteId=null;confirmBtn.disabled=true;quoteBox.textContent="Nou pa kapab kalkile konvèsyon an kounye a.";walletNotice(e.message||"Nou pa kapab jwenn to echanj la.");}
-  finally{setWalletBusy(false);}
+  }catch(e){if(requestVersion!==walletQuoteRequestVersion)return;walletQuoteId=null;confirmBtn.disabled=true;quoteBox.textContent="Nou pa kapab kalkile konvèsyon an kounye a.";walletNotice(e.message||"Nou pa kapab jwenn to echanj la.");}
+  finally{if(requestVersion===walletQuoteRequestVersion)setWalletBusy(false);}
 }
 async function confirmWalletExchange(){
   if(!walletQuoteId){walletNotice("Mande yon nouvo kalkil anvan konfimasyon.");return;}
@@ -6570,6 +6573,7 @@ document.getElementById("walletExchangeQuoteBtn")?.addEventListener("click",getW
 let walletQuoteRefreshTimer=null;
 function scheduleWalletQuote(){
   clearTimeout(walletQuoteRefreshTimer);
+  walletQuoteRequestVersion++;
   walletQuoteId=null;
   const confirmBtn=document.getElementById("walletExchangeConfirmBtn");
   if(confirmBtn)confirmBtn.disabled=true;
