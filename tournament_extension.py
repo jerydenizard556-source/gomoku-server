@@ -814,6 +814,34 @@ def tournament_chat(tournament_id: str, player_id: str, username: str, message: 
 
 
 
+def delete_tournament(tournament_id: str, organizer_id: str) -> dict:
+    """Delete only an organizer-owned tournament with zero registrations."""
+    tid, oid = str(tournament_id or "").strip(), str(organizer_id or "").strip()
+    if not tid or not oid:
+        raise TournamentError("Tournoi oswa òganizatè a pa valab.")
+    with _db() as conn:
+        t = conn.execute("SELECT * FROM gomoku_tournaments WHERE tournament_id=%s FOR UPDATE", (tid,)).fetchone()
+        if not t:
+            raise TournamentError("Tournoi sa a pa egziste ankò.")
+        if str(t["organizer_id"]) != oid:
+            raise TournamentError("Se òganizatè a sèlman ki ka efase tournoi sa a.")
+        if t["status"] != "registration":
+            raise TournamentError("Ou pa ka efase yon tournoi ki deja kòmanse oswa fini.")
+        entries = conn.execute("SELECT COUNT(*) AS total FROM gomoku_tournament_entries WHERE tournament_id=%s", (tid,)).fetchone()["total"]
+        if int(entries or 0) > 0:
+            raise TournamentError("Ou pa ka efase tournoi a paske gen moun ki deja enskri oswa voye demann.")
+        if _table_exists(conn, "gomoku_tournament_matches"):
+            matches = conn.execute("SELECT COUNT(*) AS total FROM gomoku_tournament_matches WHERE tournament_id=%s", (tid,)).fetchone()["total"]
+            if int(matches or 0) > 0:
+                raise TournamentError("Tournoi sa a deja gen match; efasman bloke.")
+        conn.execute("DELETE FROM gomoku_tournament_chat WHERE tournament_id=%s", (tid,))
+        conn.execute("DELETE FROM gomoku_tournament_voice WHERE tournament_id=%s", (tid,))
+        if _table_exists(conn, "gomoku_tournament_matches"):
+            conn.execute("DELETE FROM gomoku_tournament_matches WHERE tournament_id=%s", (tid,))
+        conn.execute("DELETE FROM gomoku_tournaments WHERE tournament_id=%s", (tid,))
+    return {"ok": True, "tournament_id": tid, "message": "Tournoi a efase avèk siksè."}
+
+
 def rename_tournament(tournament_id: str, organizer_id: str, title: str) -> dict:
     """Rename a tournament only by its organizer before it starts."""
     clean_title = str(title or "").strip()
