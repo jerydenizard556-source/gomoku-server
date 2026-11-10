@@ -323,6 +323,22 @@ h1 {
     color: #D4AF37;
     font-weight: bold;
 }
+.tournament-match-comms{width:min(100%,760px);box-sizing:border-box;margin:18px auto;padding:15px;border:1px solid rgba(212,175,55,.38);border-radius:16px;background:linear-gradient(145deg,#101f35,#081426);box-shadow:0 12px 28px rgba(0,0,0,.2);text-align:left}
+.tournament-comms-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:13px}
+.tournament-comms-heading strong,.tournament-comms-heading small{display:block}.tournament-comms-heading strong{font-size:16px;color:#f5ce6a}.tournament-comms-heading small{font-size:11px;color:#9eacc2;margin-top:4px}
+.tournament-comms-heading>span{font-size:11px;color:#9eacc2;border:1px solid #344a68;border-radius:8px;padding:6px 9px}
+.tournament-comms-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(220px,.8fr);gap:12px}
+.tournament-comms-chat,.tournament-comms-voice{min-width:0;padding:11px;border:1px solid #263b58;border-radius:12px;background:#071326}
+#onlineTournamentChatMessages{height:190px;max-height:190px;overflow:auto}
+#onlineTournamentChatMessages .tournament-chat-line{overflow-wrap:anywhere}
+.tournament-comms-voice>strong{color:#f3f5fa;font-size:14px}
+.tournament-voice-controls{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.tournament-voice-controls button{min-height:39px;font-size:12px;padding:8px}
+.tournament-voice-controls button:disabled{opacity:.45;cursor:not-allowed}
+.tournament-remote-audio audio{display:none}
+.tournament-voice-pending .tournament-player-row{flex-wrap:wrap}
+@media(max-width:620px){.tournament-comms-grid{grid-template-columns:1fr}.tournament-match-comms{padding:11px}.tournament-comms-heading{align-items:flex-start}}
+
 
 .spectator-count {
     color: #D1D5DB;
@@ -2206,6 +2222,28 @@ td, th { overflow-wrap: anywhere; }
 
     <div id="onlineBoard" class="board-area"></div>
 
+    <section id="tournamentMatchComms" class="tournament-match-comms" style="display:none" aria-label="Chat ak vwa pandan match tournoi">
+      <div class="tournament-comms-heading"><div><strong>💬 Kominikasyon match la</strong><small>Chat ak vwa pandan konpetisyon an</small></div><span id="tournamentCommsRoom"></span></div>
+      <div class="tournament-comms-grid">
+        <div class="tournament-comms-chat">
+          <div id="onlineTournamentChatMessages" class="tournament-chat-messages" aria-live="polite"><p class="tournament-note">Mesaj match la ap parèt la.</p></div>
+          <div class="tournament-chat-compose"><input id="onlineTournamentChatInput" maxlength="300" placeholder="Ekri yon mesaj pou match la..." aria-label="Mesaj chat"><button id="onlineTournamentChatSend" type="button">Voye</button></div>
+        </div>
+        <div class="tournament-comms-voice">
+          <strong>🎙️ Vwa an dirèk</strong>
+          <p id="onlineTournamentVoiceStatus" class="tournament-note" aria-live="polite">Mikwo etenn. Peze bouton an pou pale.</p>
+          <div class="tournament-voice-controls">
+            <button id="onlineTournamentVoiceRequest" type="button" class="tournament-secondary" style="display:none">Mande dwa pale</button>
+            <button id="onlineTournamentVoiceStart" type="button" class="tournament-secondary">🎙️ Aktive mikwo</button>
+            <button id="onlineTournamentVoiceMute" type="button" class="tournament-secondary" disabled>🔇 Bèbè</button>
+            <button id="onlineTournamentVoiceStop" type="button" class="tournament-secondary" disabled>Fèmen vwa</button>
+          </div>
+          <div id="onlineTournamentVoicePending" class="tournament-voice-pending"></div>
+          <div id="onlineTournamentRemoteAudio" class="tournament-remote-audio" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+
     <div class="game-actions">
 
         <button
@@ -4049,6 +4087,11 @@ let reconnecting = false;
 let onlineDisplayInterval = null;
 let onlinePlayersList = [];
 let pendingGameInviteId = null;
+let activeTournamentMatchRoom = null;
+let tournamentVoiceApproved = false;
+let tournamentLocalAudioStream = null;
+let tournamentVoiceMuted = false;
+const tournamentVoicePeers = new Map();
 
 /* ==================================================
    JOUEURS EN LIGNE + INVITATION DIRECTE
@@ -4526,6 +4569,7 @@ function connectServer(callback) {
     socket.onclose =
         function() {
 
+            closeTournamentVoice();
             stopOnlineDisplayTimer();
 
             if (
@@ -4607,16 +4651,20 @@ function connectServer(callback) {
                     renderTournamentChat(data.messages || []); return;
                 }
                 if (data.type === "tournament_voice_pending") { addTournamentVoicePending(data); return; }
-                if (data.type === "tournament_voice_access") { const v=document.getElementById("tournamentVoiceStatus"); if(v) v.textContent=data.message || (data.approved ? "Mikwo apwouve." : "Mikwo pa otorize."); return; }
+                if (data.type === "voice_peer_list" && data.room===activeTournamentMatchRoom) { (data.peers||[]).forEach(peer=>ensureTournamentVoicePeer(peer.peer_id,true).catch(e=>console.warn(e))); return; }
+                if (data.type === "voice_peer_join" && data.room===activeTournamentMatchRoom) { return; }
+                if (data.type === "voice_peer_leave" && data.room===activeTournamentMatchRoom) { closeTournamentVoicePeer(data.peer_id); return; }
+                if (data.type === "voice_signal" && data.room===activeTournamentMatchRoom) { handleTournamentVoiceSignal(data).catch(e=>console.warn("Voice signal:",e)); return; }
+                if (data.type === "tournament_voice_access") { tournamentVoiceApproved=!!data.approved; const v=document.getElementById("tournamentVoiceStatus"); if(v) v.textContent=data.message || (data.approved ? "Mikwo apwouve." : "Mikwo pa otorize."); tournamentVoiceStatus(data.message || (data.approved ? "Mikwo apwouve. Ou ka aktive li." : "Mikwo pa otorize.")); showTournamentMatchComms(!!activeTournamentMatchRoom); return; }
                 if (data.type === "tournament_voice_request_result" || data.type === "tournament_voice_decision_result" || data.type === "tournament_voice_revoke_result") {
                     tournamentNotice(data.message || (data.ok ? "Aksyon fèt." : "Aksyon pa reyisi."), !!data.ok); return;
                 }
                 if (data.type === "tournament_match_start_result") {
                     if (!data.ok) { tournamentNotice(data.message || "Ou pa ka antre nan match sa a.", false); return; }
-                    onlineConnectionMode="player"; onlinePlayer=Number(data.player); onlineRoom=data.room;
+                    onlineConnectionMode="player"; onlinePlayer=Number(data.player); onlineRoom=data.room; activeTournamentMatchRoom=data.room; tournamentVoiceApproved=false;
                     onlineSessionToken=data.session_token || null; onlineGameOver=false; onlineDraw=false; onlineWinner=null;
                     document.getElementById("gameRoomCode").textContent=data.room;
-                    showScreen("onlineGameScreen"); createBoard(document.getElementById("onlineBoard"),onlineClick); startOnlineDisplayTimer();
+                    showScreen("onlineGameScreen"); createBoard(document.getElementById("onlineBoard"),onlineClick); startOnlineDisplayTimer(); showTournamentMatchComms(true); renderTournamentMatchChat([]);
                     tournamentNotice("Ou antre nan match tournoi a.", true); return;
                 }
 
@@ -5087,6 +5135,7 @@ function connectServer(callback) {
                     );
 
                     startOnlineDisplayTimer();
+                    showTournamentMatchComms(!!activeTournamentMatchRoom);
                     return;
                 }
 
@@ -5216,6 +5265,7 @@ function connectServer(callback) {
                     onlineLastMove =
                         data.last_move ||
                         null;
+                    if(activeTournamentMatchRoom&&data.room===activeTournamentMatchRoom)renderTournamentMatchChat(data.chat||[]);
                     const incomingSize = Array.isArray(data.board) && data.board.length ? data.board.length : BOARD_SIZE;
                     if (incomingSize >= 13 && incomingSize <= 20 && incomingSize !== BOARD_SIZE) {
                         BOARD_SIZE = incomingSize;
@@ -6803,6 +6853,137 @@ function renderTournamentDetail(t){
   if(pRoot)pRoot.innerHTML=players.map(p=>`<div class="tournament-player-row"><strong>${escTournament(p.username||p.player_id)}</strong><span class="tournament-pill">${escTournament(p.payment_status)}</span></div>`).join("")||'<p class="tournament-note">Pa gen jwè ki enskri ankò.</p>';
   tournamentSend("tournament_chat_history",{tournament_id:t.tournament_id});
 }
+function showTournamentMatchComms(show){
+  const panel=document.getElementById("tournamentMatchComms");
+  if(panel)panel.style.display=show?"block":"none";
+  const room=document.getElementById("tournamentCommsRoom");
+  if(room)room.textContent=show&&onlineRoom?"Chanm "+onlineRoom:"";
+  const request=document.getElementById("onlineTournamentVoiceRequest");
+  const start=document.getElementById("onlineTournamentVoiceStart");
+  if(request)request.style.display=show&&onlineConnectionMode==="spectator"&&!tournamentVoiceApproved?"block":"none";
+  if(start)start.disabled=!show||(onlineConnectionMode==="spectator"&&!tournamentVoiceApproved)||Boolean(tournamentLocalAudioStream);
+}
+function renderTournamentMatchChat(messages){
+  const root=document.getElementById("onlineTournamentChatMessages");if(!root)return;
+  root.replaceChildren();
+  (Array.isArray(messages)?messages:[]).slice(-80).forEach(m=>{
+    const line=document.createElement("div");line.className="tournament-chat-line";
+    const sender=document.createElement("strong");sender.textContent=(m.sender||m.username||"Jwè")+" ";
+    const body=document.createElement("span");body.textContent=m.text||m.message||"";
+    line.append(sender,body);root.appendChild(line);
+  });
+  if(!root.children.length){const empty=document.createElement("p");empty.className="tournament-note";empty.textContent="Pa gen mesaj ankò. Kòmanse konvèsasyon an!";root.appendChild(empty);}
+  root.scrollTop=root.scrollHeight;
+}
+function sendTournamentMatchChat(){
+  const input=document.getElementById("onlineTournamentChatInput");
+  const message=(input?.value||"").trim();
+  if(!message||!activeTournamentMatchRoom||!socket||socket.readyState!==WebSocket.OPEN)return;
+  socket.send(JSON.stringify({type:"chat",room:activeTournamentMatchRoom,message}));
+  input.value="";
+}
+function tournamentVoiceStatus(message){
+  const el=document.getElementById("onlineTournamentVoiceStatus");if(el)el.textContent=message;
+}
+function tournamentVoiceSend(to,signalType,payload){
+  if(!socket||socket.readyState!==WebSocket.OPEN||!activeTournamentMatchRoom)return;
+  socket.send(JSON.stringify({type:"voice_signal",room:activeTournamentMatchRoom,to,signal_type:signalType,payload}));
+}
+function closeTournamentVoicePeer(peerId){
+  const pc=tournamentVoicePeers.get(String(peerId));if(!pc)return;
+  try{pc.close();}catch(e){}
+  tournamentVoicePeers.delete(String(peerId));
+  document.getElementById("tournament-audio-"+String(peerId))?.remove();
+}
+function closeTournamentVoice(){
+  if(activeTournamentMatchRoom&&socket&&socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:"voice_leave",room:activeTournamentMatchRoom}));
+  tournamentVoicePeers.forEach((pc,id)=>{try{pc.close();}catch(e){};document.getElementById("tournament-audio-"+id)?.remove();});
+  tournamentVoicePeers.clear();
+  if(tournamentLocalAudioStream)tournamentLocalAudioStream.getTracks().forEach(track=>track.stop());
+  tournamentLocalAudioStream=null;tournamentVoiceMuted=false;
+  const mute=document.getElementById("onlineTournamentVoiceMute"),stop=document.getElementById("onlineTournamentVoiceStop"),start=document.getElementById("onlineTournamentVoiceStart");
+  if(mute){mute.disabled=true;mute.textContent="🔇 Bèbè";}
+  if(stop)stop.disabled=true;
+  if(start){start.disabled=onlineConnectionMode==="spectator"&&!tournamentVoiceApproved;start.textContent="🎙️ Aktive mikwo";}
+  tournamentVoiceStatus("Mikwo etenn.");
+}
+async function ensureTournamentVoicePeer(peerId,makeOffer){
+  peerId=String(peerId);if(!peerId||peerId==="undefined")return null;
+  let pc=tournamentVoicePeers.get(peerId);if(pc)return pc;
+  pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"},{urls:"stun:stun1.l.google.com:19302"}]});
+  const transceiver=pc.addTransceiver("audio",{direction:"sendrecv"});
+  pc.__audioSender=transceiver.sender;
+  if(tournamentLocalAudioStream){const track=tournamentLocalAudioStream.getAudioTracks()[0];if(track)await pc.__audioSender.replaceTrack(track);}
+  pc.onicecandidate=e=>{if(e.candidate)tournamentVoiceSend(peerId,"ice",e.candidate.toJSON());};
+  pc.ontrack=e=>{
+    let audio=document.getElementById("tournament-audio-"+peerId);
+    if(!audio){audio=document.createElement("audio");audio.id="tournament-audio-"+peerId;audio.autoplay=true;audio.playsInline=true;document.getElementById("onlineTournamentRemoteAudio")?.appendChild(audio);}
+    audio.srcObject=e.streams[0]||new MediaStream([e.track]);audio.play().catch(()=>tournamentVoiceStatus("Peze ekran an yon fwa pou aktive son lòt jwè yo."));
+  };
+  pc.onconnectionstatechange=()=>{if(["failed","closed","disconnected"].includes(pc.connectionState)&&pc.connectionState!=="disconnected")closeTournamentVoicePeer(peerId);};
+  tournamentVoicePeers.set(peerId,pc);
+  if(makeOffer&&pc.signalingState==="stable"){
+    const offer=await pc.createOffer();await pc.setLocalDescription(offer);tournamentVoiceSend(peerId,"description",pc.localDescription.toJSON());
+  }
+  return pc;
+}
+async function handleTournamentVoiceSignal(data){
+  const peerId=String(data.from_id||"");if(!peerId)return;
+  const pc=await ensureTournamentVoicePeer(peerId,false);if(!pc)return;
+  if(data.signal_type==="description"){
+    const description=data.payload;
+    if(!description||!description.type)return;
+    await pc.setRemoteDescription(description);
+    if(description.type==="offer"){
+      const answer=await pc.createAnswer();await pc.setLocalDescription(answer);tournamentVoiceSend(peerId,"description",pc.localDescription.toJSON());
+    }
+  }else if(data.signal_type==="ice"&&data.payload){
+    try{await pc.addIceCandidate(data.payload);}catch(e){console.warn("ICE candidate:",e);}
+  }
+}
+async function startTournamentVoice(){
+  if(!activeTournamentMatchRoom||!socket||socket.readyState!==WebSocket.OPEN){tournamentVoiceStatus("Koneksyon match la poko pare.");return;}
+  if(onlineConnectionMode==="spectator"&&!tournamentVoiceApproved){tournamentVoiceStatus("Ou dwe mande pèmisyon òganizatè a anvan ou pale.");return;}
+  try{
+    tournamentLocalAudioStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+    const track=tournamentLocalAudioStream.getAudioTracks()[0];
+    tournamentVoicePeers.forEach(async pc=>{if(pc.__audioSender)await pc.__audioSender.replaceTrack(track);});
+    socket.send(JSON.stringify({type:"voice_join",room:activeTournamentMatchRoom}));
+    const start=document.getElementById("onlineTournamentVoiceStart"),mute=document.getElementById("onlineTournamentVoiceMute"),stop=document.getElementById("onlineTournamentVoiceStop");
+    if(start){start.disabled=true;start.textContent="🎙️ Mikwo aktive";}
+    if(mute)mute.disabled=false;if(stop)stop.disabled=false;
+    tournamentVoiceStatus("Mikwo aktive. Ou ka pale ak lòt moun ki nan match la.");
+  }catch(error){
+    tournamentVoiceStatus(error?.name==="NotAllowedError"?"Navigatè a pa gen pèmisyon pou itilize mikwo a.":"Mikwo a pa disponib. Verifye aparèy la ak pèmisyon navigatè a.");
+  }
+}
+function toggleTournamentVoiceMute(){
+  if(!tournamentLocalAudioStream)return;
+  tournamentVoiceMuted=!tournamentVoiceMuted;
+  tournamentLocalAudioStream.getAudioTracks().forEach(track=>track.enabled=!tournamentVoiceMuted);
+  const btn=document.getElementById("onlineTournamentVoiceMute");
+  if(btn)btn.textContent=tournamentVoiceMuted?"🔊 Retire bèbè":"🔇 Bèbè";
+  tournamentVoiceStatus(tournamentVoiceMuted?"Mikwo sou bèbè.":"Mikwo aktive.");
+}
+document.getElementById("onlineTournamentChatSend")?.addEventListener("click",sendTournamentMatchChat);
+document.getElementById("onlineTournamentChatInput")?.addEventListener("keydown",e=>{if(e.key==="Enter")sendTournamentMatchChat();});
+document.getElementById("onlineTournamentVoiceStart")?.addEventListener("click",startTournamentVoice);
+document.getElementById("onlineTournamentVoiceMute")?.addEventListener("click",toggleTournamentVoiceMute);
+document.getElementById("onlineTournamentVoiceStop")?.addEventListener("click",closeTournamentVoice);
+document.getElementById("onlineTournamentVoiceRequest")?.addEventListener("click",()=>{
+  if(!activeTournamentId||!activeTournamentMatchRoom)return;
+  tournamentSend("tournament_voice_request",{tournament_id:activeTournamentId,room:activeTournamentMatchRoom});
+});
+document.getElementById("onlineTournamentVoicePending")?.addEventListener("click",e=>{
+  const btn=e.target.closest("[data-match-voice-decision]");if(!btn)return;
+  const p=tournamentPendingVoice[Number(btn.dataset.index)];if(!p)return;
+  tournamentSend("tournament_voice_decision",{tournament_id:p.tournament_id,room:p.room,player_id:p.player_id,approved:btn.dataset.approve==="1"});
+  tournamentPendingVoice.splice(Number(btn.dataset.index),1);renderTournamentMatchVoicePending();
+});
+function renderTournamentMatchVoicePending(){
+  const root=document.getElementById("onlineTournamentVoicePending");if(!root)return;
+  root.innerHTML=tournamentPendingVoice.map((p,i)=>'<div class="tournament-player-row"><strong>'+escTournament(p.username||"Jwè")+' mande mikwo</strong><span><button type="button" class="tournament-secondary" data-match-voice-decision="1" data-index="'+i+'" data-approve="1">Aksepte</button><button type="button" class="tournament-secondary" data-match-voice-decision="1" data-index="'+i+'" data-approve="0">Refize</button></span></div>').join("");
+}
 function renderTournamentChat(messages){
   const root=document.getElementById("tournamentChatMessages");if(!root)return;
   root.innerHTML=messages.map(m=>`<div class="tournament-chat-line"><strong>${escTournament(m.username||m.player_id||"Jwè")}</strong>${escTournament(m.message||m.body||"")}</div>`).join("")||'<p class="tournament-note">Pa gen mesaj ankò.</p>';
@@ -6874,7 +7055,7 @@ document.getElementById("tournamentScreen")?.addEventListener("click",e=>{
   if(action==="start")tournamentSend("tournament_start",{tournament_id:id});
   if(action==="match")tournamentSend("tournament_match_start",{tournament_id:id,match_id:btn.dataset.match});
   if(action==="watch"){
-    activeTournamentId=id;activeTournamentMatchRoom=btn.dataset.room;
+    activeTournamentId=id;activeTournamentMatchRoom=btn.dataset.room;tournamentVoiceApproved=false;
     onlineConnectionMode="spectator";onlinePlayer=0;onlineRoom=activeTournamentMatchRoom;
     tournamentSend("watch",{room:activeTournamentMatchRoom});
   }
