@@ -1328,6 +1328,43 @@ td, th { overflow-wrap: anywhere; }
 @keyframes japanBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(9px)}}
 @media(max-width:600px){#tournamentScreen .japan-brand{padding-top:26px}#tournamentScreen .japan-hero-copy{margin-top:55px}#tournamentScreen .japan-pagoda{right:0;top:32%;font-size:76px}#tournamentScreen .japan-blossoms{font-size:76px}#tournamentScreen .japan-board-scene{top:57%;width:94vw;height:46vw}#tournamentScreen .japan-continue{min-width:210px}}
 
+
+/* PREMIUM GOMOKU ARENA HERO */
+#tournamentScreen .tournament-hero-stage{
+ min-height:140vh!important;
+ background:#020817 url('/assets/gomoku-arena-hero.svg') center center/cover no-repeat!important;
+ color:#fff;
+}
+#tournamentScreen .japan-sky,
+#tournamentScreen .japan-sun,
+#tournamentScreen .japan-mountain,
+#tournamentScreen .japan-pagoda,
+#tournamentScreen .japan-blossoms,
+#tournamentScreen .japan-board-scene{display:none!important}
+#tournamentScreen .japan-brand{padding-top:clamp(30px,6vh,70px);color:#fff8e6;text-shadow:0 2px 16px #000}
+#tournamentScreen .japan-brand>span{color:#ffd15c;filter:drop-shadow(0 0 12px rgba(255,190,50,.7))}
+#tournamentScreen .japan-brand strong{font-size:clamp(22px,3vw,32px);letter-spacing:3px}
+#tournamentScreen .japan-brand small{letter-spacing:4px;color:#e8c77b}
+#tournamentScreen .japan-hero-copy{margin:clamp(42px,8vh,95px) auto 0;max-width:900px}
+#tournamentScreen .japan-eyebrow{padding:9px 17px;border:1px solid rgba(255,211,105,.55);border-radius:999px;background:rgba(3,15,38,.64);color:#ffe6a3;letter-spacing:4px;box-shadow:0 0 30px rgba(30,115,255,.2)}
+#tournamentScreen .japan-hero-copy h1{font-size:clamp(58px,10vw,124px);letter-spacing:-4px;line-height:.88;color:#f8fbff;text-shadow:0 3px 0 #526987,0 8px 0 #142b50,0 18px 42px rgba(0,0,0,.8)}
+#tournamentScreen .japan-hero-copy h1 b{color:#ffd15b;text-shadow:0 3px 0 #98570c,0 8px 0 #462506,0 15px 35px rgba(0,0,0,.8)}
+#tournamentScreen .japan-ribbon{margin-top:24px;padding:12px 30px;border:1px solid #ffdc83;border-radius:8px;background:linear-gradient(100deg,rgba(91,48,4,.94),rgba(220,153,35,.98),rgba(91,48,4,.94));color:#fff9e8;box-shadow:0 8px 35px rgba(0,0,0,.55),0 0 28px rgba(255,188,55,.22);letter-spacing:1.5px}
+#tournamentScreen .japan-ribbon i{color:#fff0b7}
+#tournamentScreen .japan-hero-copy p{color:#fff;text-shadow:0 3px 12px #000;font-weight:800}
+#tournamentScreen .japan-scroll-hint{top:77vh;color:#ffe5a1;text-shadow:0 2px 12px #000}
+#tournamentScreen .japan-continue-wrap{top:96vh}
+#tournamentScreen .japan-continue-note{color:#ffebbd;text-shadow:0 2px 8px #000}
+#tournamentScreen .japan-continue{border:1px solid #fff0a8;background:linear-gradient(135deg,#fff0a5,#ffc43d 48%,#a95a08);color:#1d1405;box-shadow:0 0 0 5px rgba(255,205,82,.14),0 12px 38px rgba(0,0,0,.6),0 0 38px rgba(255,193,57,.45)}
+@media(max-width:600px){
+ #tournamentScreen .tournament-hero-stage{min-height:125vh!important;background-position:54% center!important}
+ #tournamentScreen .japan-brand{padding-top:30px}
+ #tournamentScreen .japan-hero-copy{margin-top:55px}
+ #tournamentScreen .japan-hero-copy h1{font-size:clamp(52px,15vw,78px);letter-spacing:-2px}
+ #tournamentScreen .japan-ribbon{padding:10px 14px;font-size:14px}
+ #tournamentScreen .japan-scroll-hint{top:74vh}
+ #tournamentScreen .japan-continue-wrap{top:91vh}
+}
 </style>
 </head>
 
