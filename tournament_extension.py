@@ -53,8 +53,8 @@ ADMIN_SECRET = os.getenv("TOURNAMENT_ADMIN_SECRET", "").strip()
 
 MIN_FEE = Decimal(os.getenv("TOURNAMENT_MIN_ENTRY_FEE", "1"))
 MAX_FEE = Decimal(os.getenv("TOURNAMENT_MAX_ENTRY_FEE", "1000"))
-MIN_COMMISSION = Decimal(os.getenv("TOURNAMENT_MIN_COMMISSION_PERCENT", "0"))
-MAX_COMMISSION = Decimal(os.getenv("TOURNAMENT_MAX_COMMISSION_PERCENT", "20"))
+MIN_COMMISSION = Decimal(os.getenv("TOURNAMENT_MIN_COMMISSION_PERCENT", "2"))
+MAX_COMMISSION = Decimal(os.getenv("TOURNAMENT_MAX_COMMISSION_PERCENT", "15"))
 
 PAYMENT_METHODS = {"tranzak", "moncash", "natcash"}
 BOARD_SIZES = {15, 19, 20}
@@ -134,6 +134,8 @@ def init_tournament_schema() -> None:
     """
     with _db() as conn:
         conn.execute(ddl)
+        conn.execute("ALTER TABLE gomoku_tournament_entries ADD COLUMN IF NOT EXISTS terms_accepted_at BIGINT")
+        conn.execute("ALTER TABLE gomoku_tournament_entries ADD COLUMN IF NOT EXISTS terms_snapshot JSONB")
 
 
 def _get_tournament(conn, tournament_id: str):
@@ -175,18 +177,23 @@ def create_tournament(
         raise TournamentError(f"Board size must be one of {sorted(BOARD_SIZES)}.")
     if duration_seconds not in DURATIONS:
         raise TournamentError(f"Duration must be one of {sorted(DURATIONS)} seconds.")
-    if not isinstance(prize_shares, dict) or not prize_shares:
-        raise TournamentError("Prize distribution is required.")
+    if not isinstance(prize_shares, dict) or not prize_shares or len(prize_shares)>3:
+        raise TournamentError("Choose between one and three prize winners.")
     shares = {}
     total = Decimal("0")
+    expected_places = {str(n) for n in range(1, len(prize_shares)+1)}
+    if set(prize_shares) != expected_places:
+        raise TournamentError("Prize places must be consecutive starting at first place.")
     for place, raw in prize_shares.items():
         if place not in {"1", "2", "3"}:
             raise TournamentError("Prize places must be 1, 2 or 3.")
         pct = _money(raw, f"Prize share {place}")
-        if pct < 0:
-            raise TournamentError("Prize shares cannot be negative.")
+        if pct < 0 or pct > 100:
+            raise TournamentError("Prize shares must be between 0 and 100%.")
         shares[place] = str(pct)
         total += pct
+    if Decimal(shares["1"]) < Decimal("60"):
+        raise TournamentError("First place must receive at least 60% of the prize pool.")
     if total != Decimal("100.00"):
         raise TournamentError("Prize shares must add up to exactly 100%.")
     if currency not in {"USD", "HTG"}:
@@ -427,8 +434,8 @@ def admin_config() -> dict:
     """Safe values to show in admin UI; never expose the admin secret."""
     return {
         "min_entry_fee": str(MIN_FEE), "max_entry_fee": str(MAX_FEE),
-        "min_commission_percent": str(MIN_COMMISSION),
-        "max_commission_percent": str(MAX_COMMISSION),
+        "min_commission_percent": "2",
+        "max_commission_percent": "15",
         "payment_methods": sorted(PAYMENT_METHODS),
         "board_sizes": sorted(BOARD_SIZES),
         "durations_seconds": sorted(DURATIONS),
@@ -735,29 +742,40 @@ def can_spectator_use_mic(tournament_id: str, player_id: str) -> bool:
 
 # Security/UX refinements for the integrated server.
 def register_entry(tournament_id: str, player_id: str,
-                   payment_reference: str = "", proof_data: str = "") -> dict:
+                   payment_reference: str = "", proof_data: str = "",
+                   terms_accepted: bool = False) -> dict:
     if not player_id: raise TournamentError("Player ID is required.")
+    if not terms_accepted:
+        raise TournamentError("Player must accept the tournament terms before registering.")
     if len(proof_data)>900000: raise TournamentError("Payment proof image exceeds the 650 KB limit.")
     with _db() as conn:
-        # Serialize registration against organizer deletion of an empty tournament.
+        # Lock the tournament row so its terms cannot race with registration/deletion.
         t=conn.execute("SELECT * FROM gomoku_tournaments WHERE tournament_id=%s FOR UPDATE",(tournament_id,)).fetchone()
         if not t: raise TournamentError("Tournament not found.")
         if t["status"]!="registration": raise TournamentError("Registration is closed.")
         if not proof_data and t["payment_method"] in {"moncash","natcash"}:
             raise TournamentError("A payment proof image is required for this payment method.")
+        terms_snapshot={
+            "title":t["title"],"entry_fee":str(t["entry_fee"]),"currency":t["currency"],
+            "payment_method":t["payment_method"],"commission_percent":str(t["commission_percent"]),
+            "prize_shares":t["prize_shares"],"accepted_at":int(time.time())
+        }
+        accepted_at=int(time.time())
+        terms_snapshot["accepted_at"]=accepted_at
         entry_id="entry_"+secrets.token_urlsafe(12).replace("-","_")
         try:
             conn.execute(
                 """INSERT INTO gomoku_tournament_entries
                    (entry_id,tournament_id,player_id,payment_reference,proof_data,
-                    payment_status,paid_amount,created_at)
-                   VALUES (%s,%s,%s,%s,%s,'pending',%s,%s)""",
+                    payment_status,paid_amount,created_at,terms_accepted_at,terms_snapshot)
+                   VALUES (%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s::jsonb)""",
                 (entry_id,tournament_id,str(player_id),payment_reference or None,
-                 proof_data or None,t["entry_fee"],int(time.time())),
+                 proof_data or None,t["entry_fee"],accepted_at,accepted_at,json.dumps(terms_snapshot)),
             )
         except psycopg.errors.UniqueViolation:
             raise TournamentError("Player already registered for this tournament.")
-    return {"ok":True,"entry_id":entry_id,"payment_status":"pending","seat_confirmed":False}
+    return {"ok":True,"entry_id":entry_id,"payment_status":"pending","seat_confirmed":False,
+            "terms_accepted":True}
 
 
 def admin_review_entry(entry_id: str, decision: str, admin_secret: str) -> dict:
