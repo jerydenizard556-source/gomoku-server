@@ -4488,7 +4488,7 @@ function connectServer(callback) {
                 if (data.type === "tournament_list_result") { renderTournamentList(data.tournaments || []); return; }
                 if (data.type === "tournament_create_result") {
                     tournamentNotice(data.message || (data.ok ? "Tournoi kreye." : "Erè."), !!data.ok);
-                    if (data.ok) { setTournamentStage(3); loadTournamentList(); } return;
+                    if (data.ok) { setTournamentStage(4); loadTournamentList(); } return;
                 }
                 if (data.type === "tournament_rename_result") {
                     tournamentNotice(data.message || (data.ok ? "Non tournoi a modifye." : "Modifikasyon an pa reyisi."), !!data.ok);
@@ -6679,7 +6679,7 @@ document.getElementById("tournamentCreateBtn")?.addEventListener("click",()=>{
   if(!title){tournamentNotice("Ekri non tournoi a anvan ou kreye li.",false);titleInput?.focus();return;}
   const shares={"1":Number(document.getElementById("tournamentPrize1").value),"2":Number(document.getElementById("tournamentPrize2").value),"3":Number(document.getElementById("tournamentPrize3").value)};
   if(shares["1"]+shares["2"]+shares["3"]!==100){tournamentNotice("Distribisyon pri yo dwe egal 100%.",false);return;}
-  if(!tournamentCreateConfirmed){buildTournamentConfirmation();setTournamentStage(2);return;}
+  if(!tournamentCreateConfirmed){buildTournamentConfirmation();setTournamentStage(3);return;}
   tournamentCreateConfirmed=false;
   if(!tournamentSend("tournament_create",{title,entry_fee:document.getElementById("tournamentFee").value,currency:document.getElementById("tournamentCurrency").value,payment_method:document.getElementById("tournamentMethod").value,commission_percent:document.getElementById("tournamentCommission").value,board_size:Number(document.getElementById("tournamentBoard").value),duration_seconds:Number(document.getElementById("tournamentDuration").value),prize_shares:shares})){return;}
 });
