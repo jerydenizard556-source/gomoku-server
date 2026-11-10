@@ -554,6 +554,14 @@ async def handler(ws):
                         await send(ws,{'type':'tournament_create_result',**result})
                     except Exception as ex: await send(ws,{'type':'tournament_create_result','ok':False,'message':str(ex)})
                     continue
+                elif t=='tournament_rename':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte pou modifye non tournoi a.')
+                        result=await asyncio.to_thread(tournament.rename_tournament,str(d.get('tournament_id') or ''),str(acct['player_id']),str(d.get('title') or ''))
+                        await send(ws,{'type':'tournament_rename_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_rename_result','ok':False,'message':str(ex)})
+                    continue
                 elif t=='tournament_register':
                     acct=connected_accounts.get(ws)
                     try:
