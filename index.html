@@ -1287,6 +1287,47 @@ td, th { overflow-wrap: anywhere; }
 #tournamentScreen .tournament-stage-actions .tournament-primary{width:auto;min-width:190px;margin:0}
 #tournamentScreen .tournament-stage-bottom{justify-content:flex-start;margin:14px 0 22px}
 @media(max-width:620px){#tournamentScreen .tournament-stepper{gap:4px;margin:15px auto 18px}#tournamentScreen .tournament-stepper button{flex-direction:column;gap:4px;padding:6px 5px;flex:1}#tournamentScreen .tournament-stepper button b{font-size:9px}#tournamentScreen .tournament-stepper i{width:8px}#tournamentScreen .tournament-confirm-card{padding:15px}#tournamentScreen .tournament-confirm-summary{grid-template-columns:1fr}#tournamentScreen .tournament-stage-actions{flex-wrap:wrap}#tournamentScreen .tournament-stage-actions .tournament-primary{width:100%}}
+
+/* Japanese sunset landing — option 3 */
+#tournamentScreen.tournament-page.hero-mode{width:100%;max-width:none!important;min-height:100vh;margin:0!important;padding:0!important;border:0;border-radius:0;background:#1b1830;box-shadow:none;overflow:visible}
+#tournamentScreen.hero-mode .tournament-top,#tournamentScreen.hero-mode .tournament-stepper{display:none}
+#tournamentScreen .tournament-hero-stage{position:relative;isolation:isolate;display:none;min-height:170vh;overflow:hidden;text-align:center;background:linear-gradient(180deg,#f7a6a0 0%,#f7b8a2 23%,#55466d 53%,#17182f 100%);color:#fff}
+#tournamentScreen .tournament-hero-stage.active{display:block}
+#tournamentScreen .japan-sky{position:absolute;inset:0;z-index:-5;background:radial-gradient(ellipse at 50% 28%,rgba(255,235,190,.9),transparent 18%),linear-gradient(180deg,#f7a9a4 0%,#f6c0a7 35%,#8d6880 58%,#17182f 100%)}
+#tournamentScreen .japan-sun{position:absolute;z-index:-4;top:15%;left:50%;width:clamp(150px,22vw,290px);aspect-ratio:1;border-radius:50%;transform:translateX(-50%);background:radial-gradient(circle,#fff0c7 0 45%,#ffc77d 68%,rgba(255,170,119,.1) 72%);box-shadow:0 0 100px rgba(255,197,133,.55)}
+#tournamentScreen .japan-mountain{position:absolute;z-index:-3;left:-10%;width:120%;height:35%;bottom:34%;clip-path:polygon(0 100%,0 75%,13% 48%,25% 68%,43% 20%,57% 60%,72% 28%,88% 68%,100% 44%,100% 100%);background:linear-gradient(150deg,#54466c,#282d4a 65%,#1b203b)}
+#tournamentScreen .mountain-front{z-index:-2;bottom:28%;height:29%;opacity:.9;transform:scaleX(-1);background:linear-gradient(150deg,#76516d,#30304d 70%,#1c2038)}
+#tournamentScreen .japan-pagoda{position:absolute;right:9%;top:24%;font-size:clamp(70px,12vw,150px);filter:drop-shadow(0 12px 18px rgba(35,18,40,.55));opacity:.95}
+#tournamentScreen .japan-blossoms{position:absolute;top:13%;font-size:clamp(70px,12vw,150px);filter:drop-shadow(0 8px 10px rgba(80,25,55,.22));opacity:.9}
+#tournamentScreen .blossoms-left{left:-2%;transform:rotate(-20deg)}#tournamentScreen .blossoms-right{right:-2%;top:40%;transform:rotate(18deg)}
+#tournamentScreen .japan-brand{position:relative;z-index:2;display:flex;align-items:center;justify-content:center;gap:10px;padding-top:34px;color:#251b2c;text-shadow:0 1px 0 rgba(255,255,255,.45)}
+#tournamentScreen .japan-brand>span{font-size:36px;color:#a86c20}
+#tournamentScreen .japan-brand strong{display:block;font-size:24px;letter-spacing:2px;font-weight:1000}
+#tournamentScreen .japan-brand small{display:block;font-size:10px;letter-spacing:3px;font-weight:900}
+#tournamentScreen .japan-hero-copy{position:relative;z-index:2;margin:clamp(38px,7vh,90px) auto 0;padding:0 16px}
+#tournamentScreen .japan-eyebrow{display:inline-block;color:#fff4d9;font-size:11px;font-weight:950;letter-spacing:3px;text-shadow:0 2px 8px #35223f}
+#tournamentScreen .japan-hero-copy h1{margin:14px 0 5px;font-size:clamp(54px,10vw,112px);line-height:.86;font-weight:1000;letter-spacing:-3px;color:#fff8e8;text-shadow:0 5px 0 #8a4c45,0 12px 35px rgba(39,20,43,.55)}
+#tournamentScreen .japan-hero-copy h1 b{color:#ffd36c;text-shadow:0 4px 0 #8d4c26,0 10px 28px rgba(58,23,35,.5)}
+#tournamentScreen .japan-ribbon{display:inline-block;margin:17px auto 0;padding:11px 26px;border:1px solid rgba(255,239,190,.8);border-radius:4px;background:linear-gradient(90deg,#9f4c39,#d58a43,#9f4c39);box-shadow:0 8px 24px rgba(48,22,37,.35);font-size:clamp(15px,2vw,22px);font-weight:1000;letter-spacing:1px}
+#tournamentScreen .japan-ribbon i{color:#ffe5a0;font-style:normal;padding:0 5px}
+#tournamentScreen .japan-hero-copy p{margin:17px 0;color:#fff8ed;font-size:clamp(14px,1.7vw,19px);font-weight:700;line-height:1.55;text-shadow:0 2px 8px #292039}
+#tournamentScreen .japan-board-scene{position:absolute;top:53%;left:50%;width:min(82vw,900px);height:31vw;max-height:330px;min-height:180px;transform:translateX(-50%) perspective(700px) rotateX(53deg);transform-origin:center top}
+#tournamentScreen .japan-board{position:absolute;inset:0;border:12px solid #74442d;border-radius:8px;background-color:#d69b55;background-image:linear-gradient(rgba(75,43,25,.45) 1px,transparent 1px),linear-gradient(90deg,rgba(75,43,25,.45) 1px,transparent 1px);background-size:5% 5%;box-shadow:0 22px 35px rgba(12,10,24,.55),inset 0 0 35px rgba(88,45,19,.3)}
+#tournamentScreen .go-stone{position:absolute;width:5.5%;aspect-ratio:1;border-radius:50%;transform:translate(-50%,-50%);box-shadow:inset -5px -7px 9px rgba(0,0,0,.5),0 5px 10px rgba(0,0,0,.35)}
+#tournamentScreen .stone-one{left:25%;top:30%;background:radial-gradient(circle at 30% 25%,#fff,#ddd 35%,#555)}
+#tournamentScreen .stone-two{left:45%;top:50%;background:radial-gradient(circle at 30% 25%,#777,#111 50%,#000)}
+#tournamentScreen .stone-three{left:60%;top:25%;background:radial-gradient(circle at 30% 25%,#fff,#ddd 35%,#555)}
+#tournamentScreen .stone-four{left:72%;top:65%;background:radial-gradient(circle at 30% 25%,#777,#111 50%,#000)}
+#tournamentScreen .stone-five{left:35%;top:75%;background:radial-gradient(circle at 30% 25%,#777,#111 50%,#000)}
+#tournamentScreen .japan-scroll-hint{position:absolute;top:91vh;left:0;right:0;color:#fff0d0;font-size:11px;font-weight:950;letter-spacing:3px;text-shadow:0 2px 9px #24172f}
+#tournamentScreen .japan-scroll-hint span{display:block;font-size:34px;line-height:1.2;animation:japanBounce 1.6s infinite}
+#tournamentScreen .japan-continue-wrap{position:absolute;top:112vh;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:15px;padding:25px 16px}
+#tournamentScreen .japan-continue-note{font-size:13px;color:#ffe8c6;font-weight:700;letter-spacing:1px}
+#tournamentScreen .japan-continue{min-width:230px;padding:17px 30px;border:1px solid #ffe5a0;border-radius:999px;background:linear-gradient(135deg,#ffe08a,#d98b27 55%,#a94d27);color:#29192a;font-size:18px;font-weight:1000;letter-spacing:1px;cursor:pointer;box-shadow:0 0 0 5px rgba(255,218,145,.12),0 12px 35px rgba(0,0,0,.4),0 0 35px rgba(255,188,92,.35)}
+#tournamentScreen .japan-continue span{padding-left:12px;font-size:22px}
+@keyframes japanBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(9px)}}
+@media(max-width:600px){#tournamentScreen .japan-brand{padding-top:26px}#tournamentScreen .japan-hero-copy{margin-top:55px}#tournamentScreen .japan-pagoda{right:0;top:32%;font-size:76px}#tournamentScreen .japan-blossoms{font-size:76px}#tournamentScreen .japan-board-scene{top:57%;width:94vw;height:46vw}#tournamentScreen .japan-continue{min-width:210px}}
+
 </style>
 </head>
 
@@ -1731,19 +1772,45 @@ td, th { overflow-wrap: anywhere; }
 
 
 <!-- MR_JERY TOURNAMENTS — module additif -->
-<section id="tournamentScreen" class="screen tournament-page">
+<section id="tournamentScreen" class="screen tournament-page hero-mode">
+  <section class="tournament-hero-stage tournament-stage active" data-t-stage="1">
+    <div class="japan-sky"></div>
+    <div class="japan-sun"></div>
+    <div class="japan-mountain mountain-back"></div>
+    <div class="japan-mountain mountain-front"></div>
+    <div class="japan-pagoda" aria-hidden="true">🏯</div>
+    <div class="japan-blossoms blossoms-left" aria-hidden="true">🌸</div>
+    <div class="japan-blossoms blossoms-right" aria-hidden="true">🌸</div>
+    <div class="japan-brand"><span>👑</span><div><strong>GOMOKU</strong><small>MR_JERY ARENA</small></div></div>
+    <div class="japan-hero-copy">
+      <span class="japan-eyebrow">JWE • KONPETISYON • FÈ ISTWA</span>
+      <h1>TOURNOI<br><b>CENTER</b></h1>
+      <div class="japan-ribbon">Kreye <i>•</i> Patisipe <i>•</i> Gagne</div>
+      <p>Montre talan ou, defye pi bon jwè yo<br>epi goumen pou gwo pri!</p>
+    </div>
+    <div class="japan-board-scene" aria-hidden="true">
+      <div class="japan-board">
+        <span class="go-stone stone-one"></span><span class="go-stone stone-two"></span><span class="go-stone stone-three"></span><span class="go-stone stone-four"></span><span class="go-stone stone-five"></span>
+      </div>
+    </div>
+    <div class="japan-scroll-hint"><span>⌄</span> DESANN POU WÈ PLIS</div>
+    <div class="japan-continue-wrap">
+      <div class="japan-continue-note">Defi a kòmanse lè ou pare</div>
+      <button type="button" class="japan-continue" data-t-go="2">🏆 KÒMANSE <span>→</span></button>
+    </div>
+  </section>
   <header class="tournament-top">
     <button class="back-button" id="tournamentBack" type="button">← Retounen</button>
     <div><small>MR_JERY ARENA</small><h1>🏆 Tournoi Center</h1><p class="tournament-subtitle">Kreye konpetisyon, enskri, suiv match yo epi goumen pou premye plas la.</p></div>
     <button class="tournament-refresh" id="tournamentRefresh" type="button">⟳ Rafrechi lis la</button>
   </header>
   <nav class="tournament-stepper" aria-label="Etap tournoi">
-    <button type="button" class="active" data-t-step="1"><span>01</span><b>Kreye</b></button>
-    <i></i><button type="button" data-t-step="2"><span>02</span><b>Konfime</b></button>
-    <i></i><button type="button" data-t-step="3"><span>03</span><b>Disponib</b></button>
-    <i></i><button type="button" data-t-step="4"><span>04</span><b>Detay</b></button>
+    <button type="button" class="active" data-t-step="2"><span>02</span><b>Kreye</b></button>
+    <i></i><button type="button" data-t-step="3"><span>03</span><b>Konfime</b></button>
+    <i></i><button type="button" data-t-step="4"><span>04</span><b>Disponib</b></button>
+    <i></i><button type="button" data-t-step="5"><span>05</span><b>Detay</b></button>
   </nav>
-  <section class="tournament-stage active" data-t-stage="1">
+<section class="tournament-stage active" data-t-stage="2">
   <div class="tournament-layout">
     <section class="tournament-create-card">
       <div class="tournament-section-title"><span>01</span><div><h2>Kreye yon tournoi</h2><p>Òganize pwòp konpetisyon Gomoku ou. Ranpli detay yo anba a.</p></div></div>
@@ -1770,23 +1837,23 @@ td, th { overflow-wrap: anywhere; }
     </section>
   </div>
   </section>
-  <section class="tournament-stage" data-t-stage="2">
+  <section class="tournament-stage" data-t-stage="3">
     <div class="tournament-confirm-card">
       <div class="tournament-section-title"><span>02</span><div><h2>Verifye konpetisyon an</h2><p>Verifye enfòmasyon yo anvan ou kreye tournoi a.</p></div></div>
       <div id="tournamentConfirmSummary" class="tournament-confirm-summary"></div>
       <div class="tournament-stage-actions">
-        <button type="button" class="tournament-secondary" data-t-go="1">← Retounen</button>
+        <button type="button" class="tournament-secondary" data-t-go="2">← Retounen</button>
         <button type="button" class="tournament-primary" id="tournamentConfirmCreate">🏆 Konfime epi kreye</button>
       </div>
     </div>
   </section>
-  <section class="tournament-stage" data-t-stage="3">
+  <section class="tournament-stage" data-t-stage="4">
     <section class="tournament-list-card">
       <div class="tournament-section-title"><span>02</span><div><h2>Tournois disponib</h2><p>Chèche konpetisyon ki ouvè yo, gade kondisyon yo epi antre ladan yo.</p></div></div>
       <div id="tournamentList" class="tournament-list"><div class="tournament-empty"><strong>Lis la poko chaje.</strong><br>Peze “Rafrechi lis la” pou jwenn konpetisyon ki disponib yo.</div></div>
     </section>
   </section>
-  <section class="tournament-stage" data-t-stage="4">
+  <section class="tournament-stage" data-t-stage="5">
   <section id="tournamentDetail" class="tournament-detail-card" style="display:none">
     <div id="tournamentDetailContent"></div>
     <div class="tournament-tabs" role="tablist">
@@ -1804,7 +1871,7 @@ td, th { overflow-wrap: anywhere; }
     <div class="tournament-admin-row"><input id="tournamentAdminSecret" type="password" autocomplete="off" placeholder="Kle prive administratè — pa pataje li"><button id="tournamentAdminLoad" type="button" class="tournament-secondary">Chèche demann yo</button></div>
     <div id="tournamentAdminEntries" class="tournament-admin-entries"></div>
   </section>
-  <div class="tournament-stage-actions tournament-stage-bottom"><button type="button" class="tournament-secondary" data-t-go="3">← Retounen nan lis tournoi yo</button></div>
+  <div class="tournament-stage-actions tournament-stage-bottom"><button type="button" class="tournament-secondary" data-t-go="4">← Retounen nan lis tournoi yo</button></div>
   </section>
   <div id="tournamentMessage" class="tournament-message" role="status" aria-live="polite"></div>
 </section>
@@ -6478,15 +6545,17 @@ let tournamentPendingVoice = [];
 let tournamentStage = 1;
 let tournamentCreateConfirmed = false;
 function setTournamentStage(stage){
-  tournamentStage=Math.max(1,Math.min(4,Number(stage)||1));
+  tournamentStage=Math.max(1,Math.min(5,Number(stage)||1));
   document.querySelectorAll("#tournamentScreen [data-t-stage]").forEach(el=>el.classList.toggle("active",Number(el.dataset.tStage)===tournamentStage));
   document.querySelectorAll("#tournamentScreen [data-t-step]").forEach(el=>{
     const n=Number(el.dataset.tStep);el.classList.toggle("active",n===tournamentStage);el.classList.toggle("done",n<tournamentStage);
   });
+  const screen=document.getElementById("tournamentScreen");
+  if(screen)screen.classList.toggle("hero-mode",tournamentStage===1);
   const refresh=document.getElementById("tournamentRefresh");
-  if(refresh)refresh.style.visibility=tournamentStage===3?"visible":"hidden";
-  if(tournamentStage===4){const detail=document.getElementById("tournamentDetail");if(detail)detail.style.display="block";}
-  const screen=document.getElementById("tournamentScreen");if(screen)screen.scrollIntoView({behavior:"smooth",block:"start"});
+  if(refresh)refresh.style.visibility=tournamentStage===4?"visible":"hidden";
+  if(tournamentStage===5){const detail=document.getElementById("tournamentDetail");if(detail)detail.style.display="block";}
+  if(screen)screen.scrollIntoView({behavior:"smooth",block:"start"});
 }
 function tournamentValue(id){return document.getElementById(id)?.value??"";}
 function buildTournamentConfirmation(){
@@ -6505,7 +6574,7 @@ function buildTournamentConfirmation(){
 document.querySelectorAll("#tournamentScreen [data-t-go]").forEach(b=>b.addEventListener("click",()=>setTournamentStage(b.dataset.tGo)));
 document.querySelectorAll("#tournamentScreen [data-t-step]").forEach(b=>b.addEventListener("click",()=>{
  const n=Number(b.dataset.tStep);
- if(n===1||n===3||(n===4&&activeTournamentId))setTournamentStage(n);
+ if(n===2||n===4||(n===5&&activeTournamentId))setTournamentStage(n);
 }));
 document.getElementById("tournamentConfirmCreate")?.addEventListener("click",()=>{
  tournamentCreateConfirmed=true;document.getElementById("tournamentCreateBtn")?.click();
@@ -6545,7 +6614,7 @@ function renderTournamentDetail(t){
   if(!t)return;
   activeTournamentId=t.tournament_id;
   const panel=document.getElementById("tournamentDetail"),root=document.getElementById("tournamentDetailContent");
-  if(!panel||!root)return;panel.style.display="block";setTournamentStage(4);root.dataset.paymentMethod=String(t.payment_method||"").toLowerCase();
+  if(!panel||!root)return;panel.style.display="block";setTournamentStage(5);root.dataset.paymentMethod=String(t.payment_method||"").toLowerCase();
   const players=t.players||[];
   const matches=t.matches||[];
   const gross=Number(t.gross_collected||0),commission=Number(t.commission||0),pool=Number(t.prize_pool||0);
