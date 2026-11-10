@@ -1,5 +1,6 @@
 import asyncio,json,secrets,string,time,os,hashlib,hmac,re
 import websockets, psycopg
+import tournament_extension as tournament
 from websockets.http11 import Headers, Response
 HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
 DATABASE_URL=os.environ.get('DATABASE_URL'); db=None
@@ -8,6 +9,15 @@ if DATABASE_URL:
         db=psycopg.connect(DATABASE_URL); db.autocommit=True
         c=db.cursor(); c.execute('''CREATE TABLE IF NOT EXISTS players (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS points INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS wins INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS losses INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS draws INTEGER NOT NULL DEFAULT 0"); c.execute('''CREATE TABLE IF NOT EXISTS account_sessions (token_hash VARCHAR(64) PRIMARY KEY, player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.close(); print('PostgreSQL database connected.')
     except Exception as e: print('Database connection error:',repr(e)); db=None
+
+# Additive tournament schema; existing tables and game features are preserved.
+try:
+    tournament.init_tournament_schema()
+    tournament.init_bracket_schema()
+    print('Tournament extension schema ready.')
+except Exception as tournament_db_error:
+    print('Tournament schema initialization error:',repr(tournament_db_error))
+
 
 def hash_password(p):
     s=secrets.token_bytes(16); h=hashlib.pbkdf2_hmac('sha256',p.encode(),s,200000); return f'pbkdf2_sha256$200000${s.hex()}${h.hex()}'
@@ -181,6 +191,17 @@ async def reconnect(ws,c,n,t):
         except Exception: pass
     r['players'][n]['socket']=ws;r['players'][n]['connected']=True;r['players'][n].pop('disconnected_at',None);r['players'][n].pop('disconnect_marker',None)
     await send(ws,{'type':'reconnected','room':c,'player':n,'session_token':t,'username':r['players'][n]['username']});await broadcast(r)
+async def sync_tournament_result(r):
+    mid=r.get('tournament_match_id'); tid=r.get('tournament_id')
+    if not mid or not tid or not r.get('game_over') or r.get('_tournament_result_recorded'): return
+    winner_no=r.get('winner')
+    winner_id=r.get('players',{}).get(winner_no,{}).get('player_id') if winner_no else None
+    if not winner_id: return
+    try:
+        await asyncio.to_thread(tournament.record_match_result,str(tid),str(mid),str(winner_id))
+        r['_tournament_result_recorded']=True
+    except Exception as ex: print('Tournament result update error:',repr(ex))
+
 async def move(ws,c,rr,cc):
     c=str(c or '').upper().strip()
     if c not in rooms:return
@@ -199,7 +220,9 @@ async def move(ws,c,rr,cc):
     if wl:r['game_over']=True;r['winner']=n;r['winning_line']=[{'row':a,'col':b} for a,b in wl];r['last_move_was_win']=True;r['black_score']+=n==1;r['red_score']+=n==2
     elif all(all(x for x in row) for row in r['board']):r['game_over']=True;r['draw']=True;r['winner']=0
     else:r['turn']=2 if n==1 else 1
-    if r['game_over']: await record_result(r)
+    if r['game_over']:
+        await record_result(r)
+        await sync_tournament_result(r)
     await broadcast(r)
 async def rematch_req(ws,c):
     c=str(c or '').upper().strip();
@@ -234,6 +257,10 @@ async def voice_join(ws, c):
     if c not in rooms: return
     r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
+    if r.get('tournament_id') and is_spec:
+        acct=connected_accounts.get(ws,{})
+        allowed=await asyncio.to_thread(tournament.can_spectator_use_mic,str(r.get('tournament_id')),str(acct.get('player_id') or ''))
+        if not allowed: return await send(ws,{'type':'tournament_voice_access','approved':False,'message':'Mande pèmisyon òganizatè a anvan ou pale.'})
     peers=[]
     for pn, player in r['players'].items():
         other=player.get('socket')
@@ -256,6 +283,10 @@ async def voice_signal(ws, c, to, signal_type, payload):
     if c not in rooms: return
     r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
+    if r.get('tournament_id') and is_spec:
+        acct=connected_accounts.get(ws,{})
+        allowed=await asyncio.to_thread(tournament.can_spectator_use_mic,str(r.get('tournament_id')),str(acct.get('player_id') or ''))
+        if not allowed: return
     signal_type=str(signal_type or '')
     if signal_type not in ('description','ice'): return
     try: target_id=int(to)
@@ -304,6 +335,7 @@ async def abandon_if_disconnected(room_code, player_number, marker):
     r['winning_line']=None; r['rematch_request']=None; r['undo_request']=None
     r['black_score']+=int(other==1); r['red_score']+=int(other==2)
     await record_result(r)
+    await sync_tournament_result(r)
     await broadcast(r)
 
 async def disconnect(ws):
@@ -499,6 +531,138 @@ async def handler(ws):
             except: await send(ws,{'type':'error','message':'JSON invalid.'});continue
             try:
                 t=d.get('type')
+                # Tournament events are additive and isolated from existing game messages.
+                if t=='tournament_list':
+                    try: await send(ws,{'type':'tournament_list_result','tournaments':await asyncio.to_thread(tournament.list_tournaments)})
+                    except Exception as ex: await send(ws,{'type':'tournament_error','message':str(ex)})
+                    continue
+                elif t=='tournament_create':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte pou kreye yon tournoi.')
+                        result=await asyncio.to_thread(tournament.create_tournament,str(acct['player_id']),d.get('title',''),d.get('entry_fee'),d.get('payment_method'),d.get('commission_percent',0),int(d.get('board_size',15)),int(d.get('duration_seconds',600)),d.get('prize_shares',{'1':'70','2':'20','3':'10'}),d.get('currency','USD'))
+                        await send(ws,{'type':'tournament_create_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_create_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_register':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte pou enskri.')
+                        result=await asyncio.to_thread(tournament.register_entry,str(d.get('tournament_id') or ''),str(acct['player_id']),str(d.get('payment_reference') or ''),str(d.get('proof_reference') or ''))
+                        await send(ws,{'type':'tournament_register_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_register_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_state':
+                    try:
+                        tid=str(d.get('tournament_id') or '')
+                        summary=await asyncio.to_thread(tournament.tournament_summary,tid)
+                        public=await asyncio.to_thread(tournament._public_tournament,tid)
+                        await send(ws,{'type':'tournament_state_result','tournament':{**summary,**public}})
+                    except Exception as ex: await send(ws,{'type':'tournament_error','message':str(ex)})
+                    continue
+                elif t=='tournament_start':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte.')
+                        result=await asyncio.to_thread(tournament.start_tournament,str(d.get('tournament_id') or ''),str(acct['player_id']))
+                        await send(ws,{'type':'tournament_start_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_start_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_admin_entries':
+                    try:
+                        result=await asyncio.to_thread(tournament.admin_entries,str(d.get('tournament_id') or ''),str(d.get('admin_secret') or ''))
+                        await send(ws,{'type':'tournament_admin_entries_result','entries':result})
+                    except Exception as ex: await send(ws,{'type':'tournament_admin_entries_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_admin_review':
+                    try:
+                        result=await asyncio.to_thread(tournament.admin_review_entry,str(d.get('entry_id') or ''),str(d.get('decision') or ''),str(d.get('admin_secret') or ''))
+                        await send(ws,{'type':'tournament_admin_review_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_admin_review_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_match_start':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte.')
+                        tid=str(d.get('tournament_id') or ''); mid=str(d.get('match_id') or '')
+                        match=await asyncio.to_thread(tournament.get_tournament_match,tid,mid)
+                        if str(acct['player_id']) not in {str(match['player1_id']),str(match['player2_id'])}: raise tournament.TournamentError('Ou pa nan match sa a.')
+                        room_code=match.get('room_code')
+                        if not room_code:
+                            room_code=code()
+                            room=room_base(match['board_size'],match['duration_seconds'])
+                            room['tournament_id']=tid; room['tournament_match_id']=mid
+                            room['tournament_player_ids']={1:int(match['player1_id']),2:int(match['player2_id'])}
+                            rooms[room_code]=room
+                        else:
+                            room=rooms.get(room_code)
+                            if room is None:
+                                room=room_base(match['board_size'],match['duration_seconds'])
+                                room['tournament_id']=tid; room['tournament_match_id']=mid
+                                room['tournament_player_ids']={1:int(match['player1_id']),2:int(match['player2_id'])}
+                                rooms[room_code]=room
+                        player_no=1 if str(acct['player_id'])==str(match['player1_id']) else 2
+                        old=room['players'].get(player_no)
+                        if old and old.get('socket') is not ws: raise tournament.TournamentError('Ou deja konekte nan match la.')
+                        tok=session()
+                        room['players'][player_no]={'socket':ws,'connected':True,'session_token':tok,'username':acct['username'],'player_id':acct['player_id']}
+                        await asyncio.to_thread(tournament.attach_match_room,tid,mid,room_code,str(acct['player_id']))
+                        await send(ws,{'type':'tournament_match_start_result','ok':True,'room':room_code,'player':player_no,'session_token':tok,'board_size':match['board_size'],'duration_seconds':match['duration_seconds']})
+                        await broadcast(room)
+                    except Exception as ex: await send(ws,{'type':'tournament_match_start_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_chat':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte.')
+                        tid=str(d.get('tournament_id') or '')
+                        result=await asyncio.to_thread(tournament.tournament_chat,tid,str(acct['player_id']),acct['username'],str(d.get('message') or ''))
+                        messages=await asyncio.to_thread(tournament.list_tournament_messages,tid,str(acct['player_id']))
+                        await send(ws,{'type':'tournament_chat_result',**result,'messages':messages})
+                    except Exception as ex: await send(ws,{'type':'tournament_chat_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_voice_request':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte.')
+                        tid=str(d.get('tournament_id') or ''); room_code=str(d.get('room') or '').upper()
+                        room=rooms.get(room_code)
+                        if not room or room.get('tournament_id')!=tid or ws not in room.get('spectators',set()): raise tournament.TournamentError('Ou dwe espektatè match sa a.')
+                        await asyncio.to_thread(tournament.request_spectator_mic,tid,str(acct['player_id']))
+                        organizer_id=await asyncio.to_thread(tournament.tournament_organizer,tid)
+                        organizer_ws=next((sock for sock,a in connected_accounts.items() if str(a.get('player_id'))==organizer_id),None)
+                        if organizer_ws: await send(organizer_ws,{'type':'tournament_voice_pending','tournament_id':tid,'room':room_code,'player_id':acct['player_id'],'username':acct['username']})
+                        await send(ws,{'type':'tournament_voice_request_result','ok':True,'message':'Demann lan voye bay òganizatè a.'})
+                    except Exception as ex: await send(ws,{'type':'tournament_voice_request_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_voice_decision':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte.')
+                        tid=str(d.get('tournament_id') or ''); pid=str(d.get('player_id') or '')
+                        result=await asyncio.to_thread(tournament.decide_spectator_mic,tid,pid,str(acct['player_id']),bool(d.get('approved')))
+                        target=next((sock for sock,a in connected_accounts.items() if str(a.get('player_id'))==pid),None)
+                        if target: await send(target,{'type':'tournament_voice_access','approved':bool(d.get('approved')),'message':'Ou gen dwa pale.' if d.get('approved') else 'Demann pale a refize.'})
+                        await send(ws,{'type':'tournament_voice_decision_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_voice_decision_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_voice_revoke':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte.')
+                        tid=str(d.get('tournament_id') or ''); pid=str(d.get('player_id') or '')
+                        result=await asyncio.to_thread(tournament.revoke_spectator_mic,tid,pid,str(acct['player_id']))
+                        target=next((sock for sock,a in connected_accounts.items() if str(a.get('player_id'))==pid),None)
+                        if target: await send(target,{'type':'tournament_voice_access','approved':False,'message':'Dwa pale ou retire.'})
+                        await send(ws,{'type':'tournament_voice_revoke_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_voice_revoke_result','ok':False,'message':str(ex)})
+                    continue
+                elif t=='tournament_chat_delete':
+                    try:
+                        await asyncio.to_thread(tournament.delete_tournament_message,str(d.get('message_id') or ''),str(d.get('admin_secret') or ''))
+                        await send(ws,{'type':'tournament_chat_delete_result','ok':True})
+                    except Exception as ex: await send(ws,{'type':'tournament_chat_delete_result','ok':False,'message':str(ex)})
+                    continue
                 if t=='ttt_create': await ttt_create(ws)
                 elif t=='ttt_join': await ttt_join(ws,d.get('room'))
                 elif t=='ttt_move': await ttt_move(ws,d.get('room'),d.get('index'))
