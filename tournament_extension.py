@@ -739,7 +739,9 @@ def register_entry(tournament_id: str, player_id: str,
     if not player_id: raise TournamentError("Player ID is required.")
     if len(proof_data)>900000: raise TournamentError("Payment proof image exceeds the 650 KB limit.")
     with _db() as conn:
-        t=_get_tournament(conn,tournament_id)
+        # Serialize registration against organizer deletion of an empty tournament.
+        t=conn.execute("SELECT * FROM gomoku_tournaments WHERE tournament_id=%s FOR UPDATE",(tournament_id,)).fetchone()
+        if not t: raise TournamentError("Tournament not found.")
         if t["status"]!="registration": raise TournamentError("Registration is closed.")
         if not proof_data and t["payment_method"] in {"moncash","natcash"}:
             raise TournamentError("A payment proof image is required for this payment method.")
