@@ -6791,7 +6791,7 @@ function loadTournamentList(){tournamentSend("tournament_list");}
 function loadTournamentState(id){if(id)tournamentSend("tournament_state",{tournament_id:id});}
 function openTournamentScreen(){
   if(!accountConnected){showScreen("accountScreen");showAccountMessage("Konekte pou antre nan Tournoi.",false);return;}
-  showScreen("tournamentScreen");setTournamentStage(1);loadTournamentList();
+  showScreen("tournamentScreen");setTournamentStage(2);loadTournamentList();
 }
 document.getElementById("dashboardTournamentCard")?.addEventListener("click",openTournamentScreen);
 document.getElementById("tournamentBack")?.addEventListener("click",()=>showAccountMenu());
