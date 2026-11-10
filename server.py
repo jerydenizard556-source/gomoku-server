@@ -560,7 +560,7 @@ async def handler(ws):
                     acct=connected_accounts.get(ws)
                     try:
                         if not acct: raise tournament.TournamentError('Konekte pou kreye yon tournoi.')
-                        result=await asyncio.to_thread(tournament.create_tournament,str(acct['player_id']),d.get('title',''),d.get('entry_fee'),d.get('payment_method'),d.get('commission_percent',0),int(d.get('board_size',15)),int(d.get('duration_seconds',600)),d.get('prize_shares',{'1':'70','2':'20','3':'10'}),d.get('currency','USD'))
+                        result=await asyncio.to_thread(tournament.create_tournament,str(acct['player_id']),d.get('title',''),d.get('entry_fee'),d.get('payment_method'),d.get('commission_percent',0),int(d.get('board_size',15)),int(d.get('duration_seconds',600)),d.get('prize_shares',{'1':'70','2':'20','3':'10'}),d.get('currency','USD'),int(d.get('max_participants',100)))
                         await send(ws,{'type':'tournament_create_result',**result})
                     except Exception as ex: await send(ws,{'type':'tournament_create_result','ok':False,'message':str(ex)})
                     continue
