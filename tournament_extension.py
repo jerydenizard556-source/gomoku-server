@@ -726,3 +726,60 @@ def can_spectator_use_mic(tournament_id: str, player_id: str) -> bool:
             (tournament_id,str(player_id)),
         ).fetchone()
     return bool(row and row["status"]=="approved")
+
+
+# Security/UX refinements for the integrated server.
+def register_entry(tournament_id: str, player_id: str,
+                   payment_reference: str = "", proof_data: str = "") -> dict:
+    if not player_id: raise TournamentError("Player ID is required.")
+    if len(proof_data)>900000: raise TournamentError("Payment proof image exceeds the 650 KB limit.")
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        if t["status"]!="registration": raise TournamentError("Registration is closed.")
+        if not proof_data and t["payment_method"] in {"moncash","natcash"}:
+            raise TournamentError("A payment proof image is required for this payment method.")
+        entry_id="entry_"+secrets.token_urlsafe(12).replace("-","_")
+        try:
+            conn.execute(
+                """INSERT INTO gomoku_tournament_entries
+                   (entry_id,tournament_id,player_id,payment_reference,proof_data,
+                    payment_status,paid_amount,created_at)
+                   VALUES (%s,%s,%s,%s,%s,'pending',%s,%s)""",
+                (entry_id,tournament_id,str(player_id),payment_reference or None,
+                 proof_data or None,t["entry_fee"],int(time.time())),
+            )
+        except psycopg.errors.UniqueViolation:
+            raise TournamentError("Player already registered for this tournament.")
+    return {"ok":True,"entry_id":entry_id,"payment_status":"pending","seat_confirmed":False}
+
+
+def admin_review_entry(entry_id: str, decision: str, admin_secret: str) -> dict:
+    if not ADMIN_SECRET or not secrets.compare_digest(admin_secret,ADMIN_SECRET):
+        raise TournamentError("Unauthorized admin.")
+    if decision not in {"approved","rejected"}: raise TournamentError("Decision must be approved or rejected.")
+    with _db() as conn:
+        row=conn.execute(
+            """SELECT e.payment_status,t.payment_method FROM gomoku_tournament_entries e
+               JOIN gomoku_tournaments t ON t.tournament_id=e.tournament_id
+               WHERE e.entry_id=%s FOR UPDATE""",(entry_id,)
+        ).fetchone()
+        if not row: raise TournamentError("Entry not found.")
+        if row["payment_status"]!="pending": raise TournamentError("Entry is not pending.")
+        if row["payment_method"]=="tranzak":
+            raise TournamentError("Tranzak must be confirmed by its signed Wallet webhook, not manual browser approval.")
+        if decision=="rejected":
+            conn.execute("UPDATE gomoku_tournament_entries SET payment_status='rejected' WHERE entry_id=%s",(entry_id,))
+            return {"ok":True,"entry_id":entry_id,"payment_status":"rejected","seat_confirmed":False}
+    return mark_payment_verified(entry_id,"manual_admin_approved")
+
+
+def record_match_draw(tournament_id: str, match_id: str) -> dict:
+    init_bracket_schema()
+    with _db() as conn:
+        conn.execute(
+            """UPDATE gomoku_tournament_matches
+               SET status='waiting',room_code=NULL,winner_id=NULL
+               WHERE tournament_id=%s AND match_id=%s""",
+            (tournament_id,match_id),
+        )
+    return {"ok":True,"status":"waiting","message":"Match nil; li dwe rejwe."}
