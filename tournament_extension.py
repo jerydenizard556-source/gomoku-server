@@ -482,14 +482,19 @@ def _public_tournament(tournament_id: str) -> dict:
             (tournament_id,),
         ).fetchall()
         matches=conn.execute(
-            """SELECT match_id,round_no,match_no,player1_id,player2_id,
-                      winner_id,room_code,status
-               FROM gomoku_tournament_matches WHERE tournament_id=%s
-               ORDER BY round_no,match_no""",
+            """SELECT m.match_id,m.round_no,m.match_no,m.player1_id,
+                      p1.username AS player1_name,m.player2_id,p2.username AS player2_name,
+                      m.winner_id,m.room_code,m.status
+               FROM gomoku_tournament_matches m
+               LEFT JOIN players p1 ON p1.id::text=m.player1_id
+               LEFT JOIN players p2 ON p2.id::text=m.player2_id
+               WHERE m.tournament_id=%s ORDER BY m.round_no,m.match_no""",
             (tournament_id,),
         ).fetchall() if _table_exists(conn,"gomoku_tournament_matches") else []
+        organizer=conn.execute("SELECT username FROM players WHERE id::text=%s",(str(t["organizer_id"]),)).fetchone()
         return {
             "tournament_id":tournament_id,"title":t["title"],
+            "organizer":organizer["username"] if organizer else "Organisateur",
             "organizer_id":str(t["organizer_id"]),"entry_fee":str(t["entry_fee"]),
             "currency":t["currency"],"payment_method":t["payment_method"],
             "commission_percent":str(t["commission_percent"]),
@@ -783,3 +788,26 @@ def record_match_draw(tournament_id: str, match_id: str) -> dict:
             (tournament_id,match_id),
         )
     return {"ok":True,"status":"waiting","message":"Match nil; li dwe rejwe."}
+
+
+def tournament_chat(tournament_id: str, player_id: str, username: str, message: str) -> dict:
+    msg=str(message).strip()
+    if not msg or len(msg)>300: raise TournamentError("Chat message must contain 1–300 characters.")
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        organizer=str(t["organizer_id"])==str(player_id)
+        confirmed=conn.execute(
+            """SELECT 1 FROM gomoku_tournament_entries
+               WHERE tournament_id=%s AND player_id=%s AND payment_status='verified'""",
+            (tournament_id,str(player_id)),
+        ).fetchone()
+        if not organizer and not confirmed:
+            raise TournamentError("Chat la rezève pou jwè ki gen peman verifye ak òganizatè a.")
+        mid="msg_"+secrets.token_urlsafe(10).replace("-","_")
+        conn.execute(
+            """INSERT INTO gomoku_tournament_chat
+               (message_id,tournament_id,player_id,username,message,created_at)
+               VALUES (%s,%s,%s,%s,%s,%s)""",
+            (mid,tournament_id,str(player_id),username[:50],msg,int(time.time())),
+        )
+    return {"ok":True,"message_id":mid,"message":msg}
