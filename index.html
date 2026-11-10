@@ -6770,7 +6770,8 @@ function syncTournamentPrizeFields(){
  if(two)two.style.display=count>=2?"block":"none";
  if(three)three.style.display=count>=3?"block":"none";
  if(count===1){document.getElementById("tournamentPrize1").value="100";}
- else if(count===2&&Number(document.getElementById("tournamentPrize1").value)>=100){document.getElementById("tournamentPrize1").value="70";document.getElementById("tournamentPrize2").value="30";}
+ if(count===2){document.getElementById("tournamentPrize1").value="70";document.getElementById("tournamentPrize2").value="30";}
+ if(count===3){document.getElementById("tournamentPrize1").value="70";document.getElementById("tournamentPrize2").value="20";document.getElementById("tournamentPrize3").value="10";}
 }
 function getTournamentPrizeShares(){
  const count=tournamentWinnerCount(),shares={};
@@ -6875,7 +6876,7 @@ function renderTournamentList(items){
       '<div class="tournament-card-stat"><small>Jwè ki gen peman verifye</small><strong>'+paid+'</strong></div>'+
       '<div class="tournament-card-stat"><small>Demann k ap tann verifikasyon</small><strong>'+pending+'</strong></div>'+
       '<div class="tournament-card-stat"><small>Konfigirasyon match</small><strong>'+size+' × '+size+' · '+minutes+' min</strong></div>'+
-      '</div><p class="tournament-card-description">Peman: '+escTournament(tournamentMethodLabel(t.payment_method))+' · Komisyon: '+escTournament(t.commission_percent??0)+'% · '+(canJoin?"Enskripsyon toujou ouvè.":state==="live"?"Konpetisyon an deja kòmanse.":"Konpetisyon sa a fini.")+'</p>'+
+      '</div><p class="tournament-card-description">Peman: '+escTournament(tournamentMethodLabel(t.payment_method))+' · Avantaj òganizatè: '+escTournament(t.commission_percent??0)+'% · '+(canJoin?"Enskripsyon toujou ouvè.":state==="live"?"Konpetisyon an deja kòmanse.":"Konpetisyon sa a fini.")+'</p>'+
       '<div class="tournament-actions"><button data-t-action="detail" data-id="'+escTournament(t.tournament_id)+'" class="gold">'+actionLabel+' <span aria-hidden="true">→</span></button></div>'+
       '</article>';
   }).join("");
@@ -6897,10 +6898,10 @@ function renderTournamentDetail(t){
     <div class="tournament-stat-grid">
       <div class="tournament-stat"><small>Jwè verifye</small><strong>${t.paid_count??t.verified_players??0}</strong></div>
       <div class="tournament-stat"><small>Demann pending</small><strong>${t.pending_count??t.pending_players??0}</strong></div>
-      <div class="tournament-stat"><small>Komisyon</small><strong>${commission.toFixed(2)}</strong></div>
+      <div class="tournament-stat"><small>Avantaj òganizatè</small><strong>${commission.toFixed(2)}</strong></div>
       <div class="tournament-stat"><small>Prize pool</small><strong>${pool.toFixed(2)}</strong></div>
     </div>
-    <p class="tournament-note">Total peman verifye: ${gross.toFixed(2)} ${escTournament(t.currency||"USD")} · Komisyon: ${commission.toFixed(2)} · Pòtay pri: ${prizeText}</p>
+    <p class="tournament-note">Total peman verifye: ${gross.toFixed(2)} ${escTournament(t.currency||"USD")} · Avantaj òganizatè: ${commission.toFixed(2)} · Pòtay pri: ${prizeText}</p>
     ${t.status==="registration"&&!isOrganizer?`<div class="tournament-register"><h3>Antre nan tournoi sa a</h3><div class="tournament-join-steps"><strong>Kondisyon tounwa a — verifye anvan ou peye:</strong><ol><li>Frè enskripsyon: <b>${escTournament(t.entry_fee)} ${escTournament(t.currency||"USD")}</b>.</li><li>Mwayen peman: <b>${escTournament(t.payment_method||"")}</b>.</li><li>Avantaj òganizatè a: <b>${escTournament(t.commission_percent)}%</b>.</li><li>Prim gayan yo: <b>${escTournament(prizeText)}</b>.</li><li>Distribisyon sa a fikse davans; li pa ka chanje apre enskripsyon kòmanse.</li></ol></div><label for="tournamentPaymentReference">Nimewo tranzaksyon / referans peman</label><input id="tournamentPaymentReference" maxlength="160" required placeholder="Antre referans tranzaksyon an"><label for="tournamentProofFile">Foto prèv peman (obligatwa pou MonCash/NatCash, max 650 KB)</label><input id="tournamentProofFile" type="file" accept="image/png,image/jpeg"><label class="tournament-terms-accept"><input id="tournamentTermsAccepted" type="checkbox"> Mwen li epi mwen aksepte frè enskripsyon an, avantaj òganizatè a, distribisyon prim yo ak tout règ tounwa sa a.</label><button type="button" class="tournament-primary" data-t-action="register" data-id="${escTournament(t.tournament_id)}">Mwen aksepte kondisyon yo epi voye enskripsyon an</button><small class="tournament-note">Enskripsyon an rete an atant jiskaske peman an verifye. Pa janm pataje modpas oswa PIN peman ou.</small></div>`:""}
     ${isOrganizer&&t.status==="registration"?`<button class="tournament-primary" data-t-action="start" data-id="${escTournament(t.tournament_id)}">Lanse tournoi a (minimòm 2 jwè verifye)</button>`:""}
     ${canDelete?`<div class="tournament-delete-zone"><p>Ou ka efase tournoi sa a paske poko gen okenn jwè ki enskri.</p><button type="button" class="tournament-delete-button" data-t-action="delete" data-id="${escTournament(t.tournament_id)}">🗑️ Efacer ce tournoi</button></div>`:""}
