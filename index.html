@@ -4654,7 +4654,7 @@ function connectServer(callback) {
                 if (data.type === "voice_peer_join" && data.room===activeTournamentMatchRoom) { return; }
                 if (data.type === "voice_peer_leave" && data.room===activeTournamentMatchRoom) { closeTournamentVoicePeer(data.peer_id); return; }
                 if (data.type === "voice_signal" && data.room===activeTournamentMatchRoom) { handleTournamentVoiceSignal(data).catch(e=>console.warn("Voice signal:",e)); return; }
-                if (data.type === "tournament_voice_access") { tournamentVoiceApproved=!!data.approved; const v=document.getElementById("tournamentVoiceStatus"); if(v) v.textContent=data.message || (data.approved ? "Mikwo apwouve." : "Mikwo pa otorize."); tournamentVoiceStatus(data.message || (data.approved ? "Mikwo apwouve. Ou ka aktive li." : "Mikwo pa otorize.")); showTournamentMatchComms(!!activeTournamentMatchRoom); return; }
+                if (data.type === "tournament_voice_access") { tournamentVoiceApproved=!!data.approved; if(!data.approved&&tournamentLocalAudioStream)closeTournamentVoice(); const v=document.getElementById("tournamentVoiceStatus"); if(v) v.textContent=data.message || (data.approved ? "Mikwo apwouve." : "Mikwo pa otorize."); tournamentVoiceStatus(data.message || (data.approved ? "Mikwo apwouve. Ou ka aktive li." : "Mikwo pa otorize.")); showTournamentMatchComms(!!activeTournamentMatchRoom); return; }
                 if (data.type === "tournament_voice_request_result" || data.type === "tournament_voice_decision_result" || data.type === "tournament_voice_revoke_result") {
                     tournamentNotice(data.message || (data.ok ? "Aksyon fèt." : "Aksyon pa reyisi."), !!data.ok); return;
                 }
