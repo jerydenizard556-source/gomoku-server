@@ -1365,6 +1365,42 @@ td, th { overflow-wrap: anywhere; }
  #tournamentScreen .japan-scroll-hint{top:74vh}
  #tournamentScreen .japan-continue-wrap{top:91vh}
 }
+
+/* PREMIUM CREATE TOURNAMENT FORM */
+#tournamentScreen .tournament-create-pro{max-width:980px;margin:30px auto 55px;padding:clamp(20px,4vw,46px);border:1px solid rgba(76,143,255,.42);border-radius:26px;background:radial-gradient(ellipse at 50% 0%,rgba(25,91,205,.24),transparent 54%),linear-gradient(145deg,rgba(8,27,65,.98),rgba(3,12,31,.99));box-shadow:0 28px 80px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.07)}
+#tournamentScreen .create-pro-heading{text-align:center;margin:4px auto 28px}
+#tournamentScreen .create-pro-kicker{display:flex;justify-content:center;gap:10px;align-items:center;color:#91baff;font-size:10px;font-weight:900;letter-spacing:2.6px}
+#tournamentScreen .create-pro-kicker i{color:#ffd15b;font-style:normal}
+#tournamentScreen .create-pro-heading h2{margin:13px 0 8px;font-size:clamp(34px,5vw,54px);font-weight:1000;letter-spacing:-1.8px;color:#f5f8ff}
+#tournamentScreen .create-pro-heading h2 em{font-style:normal;color:#ffd15b;text-shadow:0 5px 22px rgba(255,190,50,.18)}
+#tournamentScreen .create-pro-heading p{margin:0;color:#aebfdd;font-size:14px}
+#tournamentScreen .create-pro-card{max-width:760px;margin:auto;padding:clamp(18px,3vw,30px);border:1px solid rgba(112,164,255,.3);border-radius:20px;background:linear-gradient(145deg,rgba(13,39,86,.95),rgba(5,19,48,.98));box-shadow:0 18px 45px rgba(0,0,0,.28)}
+#tournamentScreen .create-pro-card-head{display:flex;align-items:center;gap:13px;padding-bottom:22px;border-bottom:1px solid rgba(139,177,239,.17)}
+#tournamentScreen .create-pro-icon{display:grid;place-items:center;width:48px;height:48px;flex:0 0 48px;border:1px solid rgba(255,211,91,.5);border-radius:14px;background:linear-gradient(145deg,rgba(255,202,71,.2),rgba(255,202,71,.04));font-size:23px}
+#tournamentScreen .create-pro-card-head strong{display:block;color:#fff;font-size:16px}
+#tournamentScreen .create-pro-card-head small{display:block;margin-top:4px;color:#91a9cf;font-size:12px}
+#tournamentScreen .create-pro-step{margin-left:auto;color:#ffd15b;font-size:11px;font-weight:900;letter-spacing:1px}
+#tournamentScreen .create-pro-fields{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;padding:26px 0}
+#tournamentScreen .create-pro-field{display:block;min-width:0;text-align:left;color:#dce8ff;font-size:11px;font-weight:900;letter-spacing:1.4px}
+#tournamentScreen .create-pro-field>span,#tournamentScreen .create-pro-field>label{display:block;margin-bottom:9px;color:#b9cbe8}
+#tournamentScreen .create-pro-field input,#tournamentScreen .create-pro-money select{width:100%;height:54px;border:1px solid rgba(115,163,244,.42);border-radius:11px;background:#06152f;color:#fff;padding:0 15px;font-size:16px;font-weight:700;outline:none}
+#tournamentScreen .create-pro-field input:focus,#tournamentScreen .create-pro-money select:focus{border-color:#ffd15b;box-shadow:0 0 0 3px rgba(255,209,91,.12)}
+#tournamentScreen .create-pro-field input::placeholder{color:#60799f;font-weight:500}
+#tournamentScreen .create-pro-field small{display:block;margin-top:8px;color:#8198bd;font-size:11px;font-weight:500;letter-spacing:0}
+#tournamentScreen .create-pro-money{display:grid;grid-template-columns:minmax(0,1fr) 118px;gap:8px}
+#tournamentScreen .create-pro-money select{padding:0 10px;font-size:13px;color:#ffdf8a}
+#tournamentScreen .create-pro-included{display:flex;align-items:center;gap:12px;padding:15px 16px;border:1px solid rgba(62,156,130,.25);border-radius:12px;background:rgba(20,112,91,.1)}
+#tournamentScreen .create-pro-included>span{display:grid;place-items:center;width:27px;height:27px;flex:0 0 27px;border-radius:50%;background:rgba(64,205,158,.16);color:#62e0b2;font-weight:1000}
+#tournamentScreen .create-pro-included strong{display:block;color:#dffbef;font-size:12px}
+#tournamentScreen .create-pro-included small{display:block;margin-top:4px;color:#91bcae;font-size:11px;line-height:1.5}
+#tournamentScreen .create-pro-footer{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:24px}
+#tournamentScreen .create-pro-footer>div small{display:block;color:#7894be;font-size:10px;font-weight:900;letter-spacing:1.6px}
+#tournamentScreen .create-pro-footer>div strong{display:block;margin-top:5px;color:#dce8ff;font-size:12px}
+#tournamentScreen .create-pro-submit{min-width:190px;margin:0!important;padding:15px 24px!important;border:1px solid #ffe18a!important;border-radius:12px!important;background:linear-gradient(110deg,#ffe58c,#ffc43d 55%,#d98b19)!important;color:#1b1406!important;font-weight:1000!important;box-shadow:0 8px 25px rgba(255,181,42,.2)}
+#tournamentScreen .create-pro-submit span{margin-left:12px;font-size:20px}
+#tournamentScreen .create-pro-security{margin-top:18px;text-align:center;color:#7189ad;font-size:11px}
+@media(max-width:650px){#tournamentScreen .tournament-create-pro{margin:16px auto 30px;padding:18px 12px;border-radius:18px}#tournamentScreen .create-pro-fields{grid-template-columns:1fr;gap:20px;padding:20px 0}#tournamentScreen .create-pro-card{padding:17px}#tournamentScreen .create-pro-footer{align-items:stretch;flex-direction:column}#tournamentScreen .create-pro-submit{width:100%}#tournamentScreen .create-pro-step{font-size:9px}#tournamentScreen .create-pro-kicker{font-size:8px;letter-spacing:1.5px}}
+
 </style>
 </head>
 
@@ -1848,32 +1884,31 @@ td, th { overflow-wrap: anywhere; }
     <i></i><button type="button" data-t-step="5"><span>05</span><b>Detay</b></button>
   </nav>
 <section class="tournament-stage active" data-t-stage="2">
-  <div class="tournament-layout">
-    <section class="tournament-create-card">
-      <div class="tournament-section-title"><span>01</span><div><h2>Kreye yon tournoi</h2><p>Òganize pwòp konpetisyon Gomoku ou. Ranpli detay yo anba a.</p></div></div>
-      <div class="tournament-form-grid">
-        <label class="tournament-wide">Non konpetisyon an
-          <input id="tournamentTitle" maxlength="100" required placeholder="Egzanp: MR_Jery Championship">
-          <small>Chwazi yon non klè. Ou ka modifye non an anvan konpetisyon an kòmanse.</small>
-        </label>
-        <label>Frè patisipasyon chak jwè<input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><small>Montan chak jwè ap peye pou patisipe.</small></label>
-        <label>Monnen<select id="tournamentCurrency"><option value="USD">USD ($)</option><option value="HTG">HTG (Gourdes)</option></select></label>
-        <label>Metòd peman<select id="tournamentMethod"><option value="tranzak">Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select></label>
-        <label>Komisyon òganizatè (%)<input id="tournamentCommission" type="number" min="0" max="20" step="0.01" value="10"><small>Pousantaj sistèm nan dedui sou lajan konpetisyon an.</small></label>
-        <label>Gwosè tablo a<select id="tournamentBoard"><option value="15">15 × 15</option><option value="19">19 × 19</option><option value="20">20 × 20</option></select></label>
-        <label>Tan pou chak match<select id="tournamentDuration"><option value="60">1 minit</option><option value="120">2 minit</option><option value="180">3 minit</option><option value="300">5 minit</option><option value="600" selected>10 minit</option><option value="900">15 minit</option><option value="1200">20 minit</option><option value="1800">30 minit</option></select></label>
-        <div class="tournament-wide tournament-prizes">
-          <strong>🏅 Pataj pri gayan yo</strong>
-          <label>1ye plas (%)<input id="tournamentPrize1" type="number" min="0" max="100" value="70"></label>
-          <label>2yèm plas (%)<input id="tournamentPrize2" type="number" min="0" max="100" value="20"></label>
-          <label>3yèm plas (%)<input id="tournamentPrize3" type="number" min="0" max="100" value="10"></label>
-          <small>Twa pousantaj yo dwe bay 100% ansanm. Komisyon an rete nan limit administratè sèvè a fikse.</small>
-        </div>
+  <div class="tournament-create-pro">
+    <div class="create-pro-heading">
+      <div class="create-pro-kicker"><span>MR_JERY ARENA</span><i>•</i><span>TOURNAMENT SETUP</span></div>
+      <h2>Kreye <em>Tournoi</em></h2>
+      <p>De twa enfòmasyon sèlman pou lanse konpetisyon ou.</p>
+    </div>
+    <div class="create-pro-card">
+      <div class="create-pro-card-head"><span class="create-pro-icon">🏆</span><div><strong>Enfòmasyon konpetisyon an</strong><small>Prepare tournoi ou an kèk segonn</small></div><span class="create-pro-step">01 / 02</span></div>
+      <div class="create-pro-fields">
+        <label class="create-pro-field create-pro-field-wide"><span>NON TOURNOI A</span><input id="tournamentTitle" maxlength="100" required placeholder="Egzanp: MR_Jery Championship"><small>Chwazi yon non ki fasil pou jwè yo rekonèt.</small></label>
+        <div class="create-pro-field"><label for="tournamentFee">FRÈ PATISIPASYON</label><div class="create-pro-money"><input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><select id="tournamentCurrency" aria-label="Monnen"><option value="USD">USD $</option><option value="HTG">HTG G</option></select></div><small>Pri chak jwè ap peye pou antre.</small></div>
       </div>
-      <button class="tournament-primary" id="tournamentCreateBtn" type="button">Kontinye →</button>
-    </section>
+      <div class="create-pro-included"><span>✓</span><div><strong>Rès paramèt yo deja prepare</strong><small>Tablo, tan match ak pataj pri yo ap itilize reglaj estanda yo. Ou ka ajiste non tournoi a pita.</small></div></div>
+      <div class="create-pro-footer"><div><small>ETAP 1 SOU 2</small><strong>Prèske pare pou lanse</strong></div><button class="tournament-primary create-pro-submit" id="tournamentCreateBtn" type="button">Kontinye <span>→</span></button></div>
+    </div>
+    <div class="create-pro-security">🔒 Konfigirasyon an ap rete asosye ak kont òganizatè a.</div>
   </div>
-  </section>
+  <div class="tournament-hidden-defaults" hidden aria-hidden="true">
+    <select id="tournamentMethod"><option value="tranzak" selected>Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select>
+    <input id="tournamentCommission" type="hidden" value="10">
+    <select id="tournamentBoard"><option value="15" selected>15</option><option value="19">19</option><option value="20">20</option></select>
+    <select id="tournamentDuration"><option value="600" selected>600</option></select>
+    <input id="tournamentPrize1" type="hidden" value="70"><input id="tournamentPrize2" type="hidden" value="20"><input id="tournamentPrize3" type="hidden" value="10">
+  </div>
+</section>
   <section class="tournament-stage" data-t-stage="3">
     <div class="tournament-confirm-card">
       <div class="tournament-section-title"><span>02</span><div><h2>Verifye konpetisyon an</h2><p>Verifye enfòmasyon yo anvan ou kreye tournoi a.</p></div></div>
@@ -6597,13 +6632,10 @@ function setTournamentStage(stage){
 function tournamentValue(id){return document.getElementById(id)?.value??"";}
 function buildTournamentConfirmation(){
  const rows=[
-  ["Non konpetisyon",tournamentValue("tournamentTitle")],
+  ["Non tournoi",tournamentValue("tournamentTitle")],
   ["Frè patisipasyon",tournamentValue("tournamentFee")+" "+tournamentValue("tournamentCurrency")],
-  ["Metòd peman",tournamentValue("tournamentMethod")],
-  ["Komisyon",tournamentValue("tournamentCommission")+"%"],
-  ["Gwosè tablo",tournamentValue("tournamentBoard")+" × "+tournamentValue("tournamentBoard")],
-  ["Tan match",Math.round(Number(tournamentValue("tournamentDuration"))/60)+" minit"],
-  ["Pri 1ye / 2yèm / 3yèm",tournamentValue("tournamentPrize1")+"% / "+tournamentValue("tournamentPrize2")+"% / "+tournamentValue("tournamentPrize3")+"%"]
+  ["Paramèt jwèt","15 × 15 · 10 minit"],
+  ["Pataj pri","70% · 20% · 10%"]
  ];
  const root=document.getElementById("tournamentConfirmSummary");
  if(root)root.innerHTML=rows.map(([k,v])=>'<div><small>'+escTournament(k)+'</small><strong>'+escTournament(v)+'</strong></div>').join("");
