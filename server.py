@@ -617,6 +617,14 @@ async def handler(ws):
                         await broadcast(room)
                     except Exception as ex: await send(ws,{'type':'tournament_match_start_result','ok':False,'message':str(ex)})
                     continue
+                elif t=='tournament_chat_history':
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte.')
+                        messages=await asyncio.to_thread(tournament.list_tournament_messages,str(d.get('tournament_id') or ''),str(acct['player_id']))
+                        await send(ws,{'type':'tournament_chat_history_result','messages':messages})
+                    except Exception as ex: await send(ws,{'type':'tournament_chat_history_result','ok':False,'message':str(ex)})
+                    continue
                 elif t=='tournament_chat':
                     acct=connected_accounts.get(ws)
                     try:
