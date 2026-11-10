@@ -1996,11 +1996,9 @@ td, th { overflow-wrap: anywhere; }
     <div id="tournamentDetailContent"></div>
     <div class="tournament-tabs" role="tablist">
       <button type="button" class="active" data-t-tab="chat">💬 Chat</button>
-      <button type="button" data-t-tab="voice">🎙️ Vwa</button>
       <button type="button" data-t-tab="players">👥 Patisipan</button>
     </div>
     <div id="tTabChat" class="tournament-tab-panel"><div id="tournamentChatMessages" class="tournament-chat-messages"></div><div class="tournament-chat-compose"><input id="tournamentChatInput" maxlength="300" placeholder="Ekri yon mesaj..."><button id="tournamentChatSend" type="button">Voye mesaj</button></div></div>
-    <div id="tTabVoice" class="tournament-tab-panel" style="display:none"><p class="tournament-note">Espektatè yo dwe mande pèmisyon. Se òganizatè tournoi a sèlman ki ka aksepte, refize oswa retire dwa pale.</p><button type="button" class="tournament-secondary" id="tournamentMicRequest">Mande pèmisyon pou pale</button><div id="tournamentVoicePending" class="tournament-voice-pending"></div><div id="tournamentVoiceStatus" class="tournament-note" aria-live="polite"></div></div>
     <div id="tTabPlayers" class="tournament-tab-panel" style="display:none"><div id="tournamentPlayersList" class="tournament-players-list"></div></div>
   </section>
   <section class="tournament-admin-card">
@@ -7061,13 +7059,9 @@ document.getElementById("tournamentChatSend")?.addEventListener("click",()=>{
   if(tournamentSend("tournament_chat",{tournament_id:activeTournamentId,message}))input.value="";
 });
 document.getElementById("tournamentChatInput")?.addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("tournamentChatSend")?.click();});
-document.getElementById("tournamentMicRequest")?.addEventListener("click",()=>{
-  if(!activeTournamentId||!activeTournamentMatchRoom){tournamentNotice("Antre kòm espektatè nan yon match tournoi anvan.",false);return;}
-  tournamentSend("tournament_voice_request",{tournament_id:activeTournamentId,room:activeTournamentMatchRoom});
-});
 document.querySelectorAll("[data-t-tab]").forEach(btn=>btn.addEventListener("click",()=>{
   document.querySelectorAll("[data-t-tab]").forEach(b=>b.classList.toggle("active",b===btn));
-  ["chat","voice","players"].forEach(tab=>{const el=document.getElementById("tTab"+tab[0].toUpperCase()+tab.slice(1));if(el)el.style.display=tab===btn.dataset.tTab?"block":"none";});
+  ["chat","players"].forEach(tab=>{const el=document.getElementById("tTab"+tab[0].toUpperCase()+tab.slice(1));if(el)el.style.display=tab===btn.dataset.tTab?"block":"none";});
 }));
 document.getElementById("tournamentScreen")?.addEventListener("click",e=>{
   const btn=e.target.closest("[data-t-action]");if(!btn)return;
