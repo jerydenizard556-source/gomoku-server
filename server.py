@@ -281,6 +281,20 @@ async def voice_join(ws, c):
         if other is not ws:
             await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
 
+async def voice_leave(ws, c):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
+    if n is None and not is_spec: return
+    peer_id=str(id(ws))
+    for player in r['players'].values():
+        other=player.get('socket')
+        if other is not None and other is not ws:
+            await send(other,{'type':'voice_peer_leave','room':c,'peer_id':peer_id})
+    for other in list(r['spectators']):
+        if other is not ws:
+            await send(other,{'type':'voice_peer_leave','room':c,'peer_id':peer_id})
+
 async def voice_signal(ws, c, to, signal_type, payload):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -715,6 +729,7 @@ async def handler(ws):
                 elif t=='rooms_list':await rooms_list(ws)
                 elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
                 elif t=='voice_join':await voice_join(ws,d.get('room'))
+                elif t=='voice_leave':await voice_leave(ws,d.get('room'))
                 elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
                 elif t=='find_match':await find_match(ws)
                 elif t=='cancel_match':await cancel(ws)
