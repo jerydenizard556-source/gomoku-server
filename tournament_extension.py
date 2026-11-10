@@ -98,7 +98,10 @@ def init_tournament_schema() -> None:
         prize_shares JSONB NOT NULL,
         status TEXT NOT NULL DEFAULT 'registration',
         created_at BIGINT NOT NULL,
-        started_at BIGINT
+        started_at BIGINT,
+        max_participants INTEGER NOT NULL DEFAULT 100,
+        platform_creation_fee NUMERIC(12,2) NOT NULL DEFAULT 0,
+        platform_creation_rate NUMERIC(5,2) NOT NULL DEFAULT 3.00
     );
     CREATE TABLE IF NOT EXISTS gomoku_tournament_entries (
         entry_id TEXT PRIMARY KEY,
@@ -136,6 +139,9 @@ def init_tournament_schema() -> None:
         conn.execute(ddl)
         conn.execute("ALTER TABLE gomoku_tournament_entries ADD COLUMN IF NOT EXISTS terms_accepted_at BIGINT")
         conn.execute("ALTER TABLE gomoku_tournament_entries ADD COLUMN IF NOT EXISTS terms_snapshot JSONB")
+        conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS max_participants INTEGER NOT NULL DEFAULT 100")
+        conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS platform_creation_fee NUMERIC(12,2) NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS platform_creation_rate NUMERIC(5,2) NOT NULL DEFAULT 3.00")
 
 
 def _get_tournament(conn, tournament_id: str):
@@ -158,12 +164,22 @@ def create_tournament(
     duration_seconds: int,
     prize_shares: dict[str, Any],
     currency: str = "USD",
+    max_participants: int = 100,
 ) -> dict:
     """Create a tournament with validated settings and a 100% prize split."""
     if not organizer_id or not title or len(title.strip()) > 100:
         raise TournamentError("Organizer and a title (max 100 characters) are required.")
     fee = _money(entry_fee, "Entry fee")
     commission = _money(commission_percent, "Commission")
+    try:
+        capacity = int(max_participants)
+    except (TypeError, ValueError):
+        raise TournamentError("Maximum participants must be a whole number.")
+    if capacity < 2 or capacity > 10000:
+        raise TournamentError("Maximum participants must be between 2 and 10,000.")
+    creation_rate = Decimal("3.00")
+    expected_gross = fee * capacity
+    creation_fee = (expected_gross * creation_rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     method = str(payment_method).lower().strip()
     if not MIN_FEE <= fee <= MAX_FEE:
         raise TournamentError(f"Entry fee must be between {MIN_FEE} and {MAX_FEE}.")
@@ -206,16 +222,19 @@ def create_tournament(
             """INSERT INTO gomoku_tournaments
             (tournament_id, organizer_id, title, entry_fee, currency,
              payment_method, commission_percent, board_size, duration_seconds,
-             prize_shares, status, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'registration',%s)""",
+             prize_shares, status, created_at, max_participants, platform_creation_fee, platform_creation_rate)
+             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'registration',%s,%s,%s,%s)""",
             (tid, organizer_id, title.strip(), fee, currency, method, commission,
-             board_size, duration_seconds, json.dumps(shares), now),
+             board_size, duration_seconds, json.dumps(shares), now, capacity, creation_fee, creation_rate),
         )
     return {
         "ok": True, "tournament_id": tid, "status": "registration",
         "entry_fee": str(fee), "currency": currency, "payment_method": method,
         "commission_percent": str(commission), "board_size": board_size,
         "duration_seconds": duration_seconds, "prize_shares": shares,
+        "max_participants": capacity, "expected_gross": str(expected_gross),
+        "platform_creation_rate": str(creation_rate), "platform_creation_fee": str(creation_fee),
+        "platform_creation_fee_status": "calculated_not_collected",
     }
 
 
@@ -505,6 +524,9 @@ def _public_tournament(tournament_id: str) -> dict:
             "organizer_id":str(t["organizer_id"]),"entry_fee":str(t["entry_fee"]),
             "currency":t["currency"],"payment_method":t["payment_method"],
             "commission_percent":str(t["commission_percent"]),
+             "max_participants":int(t.get("max_participants") or 100),
+             "platform_creation_rate":str(t.get("platform_creation_rate") or "3.00"),
+             "platform_creation_fee":str(t.get("platform_creation_fee") or "0.00"),
             "board_size":t["board_size"],"duration_seconds":t["duration_seconds"],
             "prize_shares":t["prize_shares"],"status":t["status"],
             "players":[{"player_id":str(x["player_id"]),"username":x["username"],
@@ -753,6 +775,9 @@ def register_entry(tournament_id: str, player_id: str,
         t=conn.execute("SELECT * FROM gomoku_tournaments WHERE tournament_id=%s FOR UPDATE",(tournament_id,)).fetchone()
         if not t: raise TournamentError("Tournament not found.")
         if t["status"]!="registration": raise TournamentError("Registration is closed.")
+         current_entries=conn.execute("SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",(tournament_id,)).fetchone()["n"]
+         if int(current_entries or 0)>=int(t.get("max_participants") or 100):
+             raise TournamentError("Tournoi sa a rive nan kantite maksimòm jwè li ka resevwa.")
         if not proof_data and t["payment_method"] in {"moncash","natcash"}:
             raise TournamentError("A payment proof image is required for this payment method.")
         accepted_at=int(time.time())
