@@ -453,3 +453,219 @@ def admin_config() -> dict:
 #
 # Do NOT expose mark_payment_verified() or admin_review_entry() to ordinary
 # player websocket messages. Call them only from trusted payment/admin code.
+
+
+# ---- Additive WebSocket integration helpers / tournament bracket ----
+
+def list_tournaments(limit: int = 30) -> list[dict]:
+    limit=max(1,min(int(limit),100))
+    with _db() as conn:
+        rows=conn.execute(
+            "SELECT tournament_id FROM gomoku_tournaments ORDER BY created_at DESC LIMIT %s",
+            (limit,),
+        ).fetchall()
+    result=[]
+    for row in rows:
+        tid=row["tournament_id"]
+        result.append({**tournament_summary(tid), **_public_tournament(tid)})
+    return result
+
+
+def _public_tournament(tournament_id: str) -> dict:
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        entries=conn.execute(
+            """SELECT e.player_id,e.payment_status,e.created_at,p.username
+               FROM gomoku_tournament_entries e
+               LEFT JOIN players p ON p.id::text=e.player_id
+               WHERE e.tournament_id=%s ORDER BY e.created_at""",
+            (tournament_id,),
+        ).fetchall()
+        matches=conn.execute(
+            """SELECT match_id,round_no,match_no,player1_id,player2_id,
+                      winner_id,room_code,status
+               FROM gomoku_tournament_matches WHERE tournament_id=%s
+               ORDER BY round_no,match_no""",
+            (tournament_id,),
+        ).fetchall() if _table_exists(conn,"gomoku_tournament_matches") else []
+        return {
+            "tournament_id":tournament_id,"title":t["title"],
+            "organizer_id":str(t["organizer_id"]),"entry_fee":str(t["entry_fee"]),
+            "currency":t["currency"],"payment_method":t["payment_method"],
+            "commission_percent":str(t["commission_percent"]),
+            "board_size":t["board_size"],"duration_seconds":t["duration_seconds"],
+            "prize_shares":t["prize_shares"],"status":t["status"],
+            "players":[{"player_id":str(x["player_id"]),"username":x["username"],
+                        "payment_status":x["payment_status"]} for x in entries],
+            "matches":[dict(x) for x in matches],
+        }
+
+
+def _table_exists(conn, table_name: str) -> bool:
+    return bool(conn.execute(
+        "SELECT to_regclass(%s) AS name",(f"public.{table_name}",)
+    ).fetchone()["name"])
+
+
+def admin_entries(tournament_id: str, admin_secret: str) -> list[dict]:
+    if not ADMIN_SECRET or not secrets.compare_digest(admin_secret,ADMIN_SECRET):
+        raise TournamentError("Unauthorized admin.")
+    with _db() as conn:
+        rows=conn.execute(
+            """SELECT entry_id,player_id,payment_reference,proof_data,
+                      payment_status,paid_amount,created_at
+               FROM gomoku_tournament_entries WHERE tournament_id=%s
+               ORDER BY created_at""",(tournament_id,)
+        ).fetchall()
+    return [dict(x) for x in rows]
+
+
+def init_bracket_schema() -> None:
+    with _db() as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS gomoku_tournament_matches (
+          match_id TEXT PRIMARY KEY,
+          tournament_id TEXT NOT NULL REFERENCES gomoku_tournaments(tournament_id),
+          round_no INTEGER NOT NULL,
+          match_no INTEGER NOT NULL,
+          player1_id TEXT,
+          player2_id TEXT,
+          winner_id TEXT,
+          room_code TEXT,
+          status TEXT NOT NULL DEFAULT 'waiting',
+          UNIQUE(tournament_id,round_no,match_no)
+        );
+        CREATE INDEX IF NOT EXISTS idx_gomoku_tournament_matches
+          ON gomoku_tournament_matches(tournament_id,round_no,match_no);
+        """)
+
+
+def _make_round(conn,tournament_id,round_no,players):
+    import random
+    players=list(players)
+    random.SystemRandom().shuffle(players)
+    for idx in range(0,len(players),2):
+        p1=str(players[idx]); p2=str(players[idx+1]) if idx+1<len(players) else None
+        mid="tm_"+secrets.token_urlsafe(10).replace("-","_")
+        conn.execute(
+            """INSERT INTO gomoku_tournament_matches
+               (match_id,tournament_id,round_no,match_no,player1_id,player2_id,
+                winner_id,status)
+               VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (mid,tournament_id,round_no,idx//2+1,p1,p2,p1 if p2 is None else None,
+             "finished" if p2 is None else "waiting"),
+        )
+
+
+def advance_bracket(tournament_id: str) -> dict:
+    init_bracket_schema()
+    with _db() as conn:
+        last=conn.execute(
+            """SELECT round_no,COUNT(*) AS total,
+                      COUNT(*) FILTER (WHERE winner_id IS NOT NULL) AS done
+               FROM gomoku_tournament_matches WHERE tournament_id=%s
+               GROUP BY round_no ORDER BY round_no DESC LIMIT 1""",
+            (tournament_id,),
+        ).fetchone()
+        if not last or last["total"]!=last["done"]:
+            return {"advanced":False}
+        winners=conn.execute(
+            """SELECT winner_id FROM gomoku_tournament_matches
+               WHERE tournament_id=%s AND round_no=%s ORDER BY match_no""",
+            (tournament_id,last["round_no"]),
+        ).fetchall()
+        winners=[x["winner_id"] for x in winners if x["winner_id"]]
+        if len(winners)<=1:
+            conn.execute("UPDATE gomoku_tournaments SET status='finished' WHERE tournament_id=%s",(tournament_id,))
+            return {"advanced":True,"finished":True,"champion":winners[0] if winners else None}
+        next_round=last["round_no"]+1
+        exists=conn.execute(
+            "SELECT 1 FROM gomoku_tournament_matches WHERE tournament_id=%s AND round_no=%s LIMIT 1",
+            (tournament_id,next_round),
+        ).fetchone()
+        if not exists:_make_round(conn,tournament_id,next_round,winners)
+        return {"advanced":True,"finished":False,"round":next_round}
+
+
+def record_match_result(tournament_id: str, match_id: str, winner_id: str) -> dict:
+    init_bracket_schema()
+    with _db() as conn:
+        match=conn.execute(
+            "SELECT * FROM gomoku_tournament_matches WHERE match_id=%s AND tournament_id=%s FOR UPDATE",
+            (match_id,tournament_id),
+        ).fetchone()
+        if not match: raise TournamentError("Tournament match not found.")
+        if str(winner_id) not in {str(match["player1_id"]),str(match["player2_id"])}:
+            raise TournamentError("Winner is not a participant in this match.")
+        conn.execute(
+            "UPDATE gomoku_tournament_matches SET winner_id=%s,status='finished' WHERE match_id=%s",
+            (str(winner_id),match_id),
+        )
+    return advance_bracket(tournament_id)
+
+
+def attach_match_room(tournament_id: str, match_id: str, room_code: str,
+                      player_id: str) -> dict:
+    init_bracket_schema()
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        if t["status"]!="live": raise TournamentError("Tournament is not live.")
+        m=conn.execute(
+            "SELECT * FROM gomoku_tournament_matches WHERE match_id=%s AND tournament_id=%s FOR UPDATE",
+            (match_id,tournament_id),
+        ).fetchone()
+        if not m: raise TournamentError("Match not found.")
+        if str(player_id) not in {str(m["player1_id"]),str(m["player2_id"])}:
+            raise TournamentError("You are not assigned to this match.")
+        if m["status"] not in {"waiting","playing"}:
+            raise TournamentError("This match is already finished.")
+        if m["room_code"] and m["room_code"]!=room_code:
+            raise TournamentError("A room is already assigned to this match.")
+        conn.execute(
+            "UPDATE gomoku_tournament_matches SET room_code=%s,status='playing' WHERE match_id=%s",
+            (room_code,match_id),
+        )
+        return {"ok":True,"board_size":t["board_size"],
+                "duration_seconds":t["duration_seconds"],"room_code":room_code}
+
+
+def revoke_spectator_mic(tournament_id: str, player_id: str,
+                         organizer_id: str) -> dict:
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        if str(t["organizer_id"])!=str(organizer_id):
+            raise TournamentError("Only the organizer can revoke microphone access.")
+        conn.execute(
+            """UPDATE gomoku_tournament_voice SET status='revoked',updated_at=%s
+               WHERE tournament_id=%s AND player_id=%s""",
+            (int(time.time()),tournament_id,str(player_id)),
+        )
+    return {"ok":True,"status":"revoked"}
+
+
+def delete_tournament_message(message_id: str, admin_secret: str) -> dict:
+    if not ADMIN_SECRET or not secrets.compare_digest(admin_secret,ADMIN_SECRET):
+        raise TournamentError("Unauthorized moderator.")
+    with _db() as conn:
+        cur=conn.execute("DELETE FROM gomoku_tournament_chat WHERE message_id=%s",(message_id,))
+        if cur.rowcount!=1: raise TournamentError("Message not found.")
+    return {"ok":True}
+
+
+def list_tournament_messages(tournament_id: str, player_id: str) -> list[dict]:
+    with _db() as conn:
+        t=_get_tournament(conn,tournament_id)
+        is_organizer=str(t["organizer_id"])==str(player_id)
+        is_confirmed=conn.execute(
+            """SELECT 1 FROM gomoku_tournament_entries
+               WHERE tournament_id=%s AND player_id=%s AND payment_status='verified'""",
+            (tournament_id,str(player_id)),
+        ).fetchone()
+        if not is_organizer and not is_confirmed:
+            raise TournamentError("Chat is for verified players and organizer only.")
+        rows=conn.execute(
+            """SELECT message_id,player_id,username,message,created_at
+               FROM gomoku_tournament_chat WHERE tournament_id=%s
+               ORDER BY created_at DESC LIMIT 60""",(tournament_id,)
+        ).fetchall()
+    return [dict(x) for x in reversed(rows)]
