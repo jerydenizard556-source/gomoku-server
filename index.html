@@ -5,138 +5,1227 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MR JERY MOPION</title>
 
-<style id="mrjery-tournament-pro">
-/* MR_JERY ARENA — complete tournament interface redesign */
-#tournamentScreen.tournament-page{
-  --t-gold:#e8bd63;--t-gold2:#f6d995;--t-bg:#080f1c;--t-panel:#111d2d;--t-panel2:#0b1625;
-  --t-line:rgba(171,190,215,.16);--t-muted:#9aabc1;
-  position:relative;isolation:isolate;max-width:1320px!important;width:calc(100% - 32px);
-  margin:22px auto 48px!important;padding:28px!important;color:#edf3fb;
-  border:1px solid rgba(232,189,99,.2);border-radius:26px;
-  background:radial-gradient(ellipse at 50% -15%,rgba(232,189,99,.13),transparent 42%),linear-gradient(145deg,#0e1a2b 0%,#080f1b 68%,#0c1727 100%);
-  box-shadow:0 28px 80px rgba(0,0,0,.34);overflow:hidden
+<style>
+* {
+    box-sizing: border-box;
 }
-#tournamentScreen:before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.24;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:34px 34px;mask-image:linear-gradient(to bottom,black,transparent 75%)}
+
+body {
+    margin: 0;
+    background: #111827;
+    color: white;
+    font-family: Arial, sans-serif;
+    min-height: 100vh;
+}
+
+.app {
+    width: 100%;
+    max-width: 900px;
+    margin: auto;
+    padding: 20px 12px;
+    text-align: center;
+}
+
+h1 {
+    margin: 8px 0;
+    font-size: 28px;
+}
+
+.screen {
+    display: none;
+}
+
+.screen.active {
+    display: block;
+}
+
+/* MENU */
+
+.main-menu {
+    max-width: 380px;
+    margin: 45px auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.menu-button {
+    width: 100%;
+    padding: 16px;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    background: #273449;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.menu-button:hover {
+    background: #374151;
+}
+
+.back-button,
+.action-button {
+    margin-top: 10px;
+    padding: 11px 20px;
+    border: 1px solid #4B5563;
+    border-radius: 8px;
+    background: #1F2937;
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+.action-button {
+    margin: 5px;
+    background: #273449;
+}
+
+.action-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* ONLINE MENU */
+
+.online-box {
+    max-width: 380px;
+    margin: 30px auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.online-choice {
+    width: 100%;
+    padding: 16px;
+    border-radius: 10px;
+    font-size: 17px;
+    font-weight: bold;
+    background: #273449;
+    color: white;
+    border: 1px solid #374151;
+    cursor: pointer;
+}
+
+.online-choice:hover {
+    background: #374151;
+}
+
+.friend-box {
+    display: none;
+    max-width: 350px;
+    margin: 20px auto;
+    padding: 16px;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    background: #1F2937;
+}
+
+.friend-box.show {
+    display: block;
+}
+
+.friend-box input {
+    width: 100%;
+    padding: 13px;
+    border-radius: 8px;
+    font-size: 17px;
+    background: white;
+    color: #111;
+    border: 1px solid #555;
+    text-align: center;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+}
+
+.friend-box button {
+    width: 100%;
+    padding: 13px;
+    border-radius: 8px;
+    font-size: 16px;
+    background: #273449;
+    color: white;
+    border: 1px solid #374151;
+    cursor: pointer;
+    margin-top: 7px;
+}
+
+.searching-box {
+    display: none;
+    max-width: 380px;
+    margin: 30px auto;
+    padding: 18px;
+    border: 1px solid #D4AF37;
+    border-radius: 10px;
+    background: #1F2937;
+}
+
+.searching-box.show {
+    display: block;
+}
+
+.searching-message {
+    color: #D4AF37;
+    font-weight: bold;
+    font-size: 17px;
+    margin-bottom: 12px;
+}
+
+.cancel-search {
+    padding: 11px 20px;
+    border-radius: 8px;
+    background: #991B1B;
+    color: white;
+    border: 1px solid #7F1D1D;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+/* ROOM */
+
+.room {
+    color: #D4AF37;
+    font-weight: bold;
+    margin-top: 15px;
+}
+
+/* INFORMATIONS */
+
+.game-info {
+    margin: 10px auto 12px;
+    font-size: 16px;
+}
+
+.status {
+    color: #D1D5DB;
+    margin: 5px 0;
+}
+
+.error {
+    color: #F87171;
+    margin-top: 10px;
+}
+
+/* TIMER */
+
+.timers {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 10px auto 14px;
+}
+
+.player-timer {
+    min-width: 125px;
+    padding: 9px 14px;
+    border: 1px solid #374151;
+    border-radius: 9px;
+    background: #1F2937;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.player-timer.active {
+    border-color: #D4AF37;
+    color: #D4AF37;
+}
+
+.player-timer.warning {
+    color: #F87171;
+    border-color: #F87171;
+}
+
+.timer-label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 3px;
+    color: #D1D5DB;
+}
+
+.timer-value {
+    font-size: 21px;
+}
+
+/* SCORE */
+
+.score-board {
+    display: flex;
+    justify-content: center;
+    gap: 25px;
+    flex-wrap: wrap;
+    margin: 8px auto 12px;
+    font-size: 17px;
+    font-weight: bold;
+}
+
+.score-player {
+    padding: 7px 14px;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    background: #1F2937;
+}
+
+.score-player span {
+    color: #D4AF37;
+    font-size: 20px;
+}
+
+/* ACTIONS */
+
+.game-actions {
+    margin: 8px auto;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+/* REJWE */
+
+.rematch-box {
+    max-width: 600px;
+    width: 100%;
+    min-height: 94px;
+    height: 94px;
+    margin: 12px auto;
+    padding: 8px 12px;
+    border: 1px solid #D4AF37;
+    border-radius: 9px;
+    background: #1F2937;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    visibility: hidden;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+/* Rezève menm espas la pou mesaj rejwe a pa fè tablo a deplase. */
+#rematchBox, #undoBox { min-height: 94px; height: 94px; }
+#rematchBox.show, #undoBox.show { visibility: visible; }
+#onlineStatus { min-height: 34px; display: flex; align-items: center; justify-content: center; }
+#onlineStatus.opponent-turn { font-size: 22px; font-weight: 900; color: #FBBF24; }
+#onlineMatchNotice { min-height: 28px; }
+#onlineBoard { contain: layout paint; }
+#rematchBox .rematch-button, #undoBox .rematch-button { min-height: 46px; padding: 11px 18px; font-size: 16px; }
+
+.rematch-box.show {
+    visibility: visible;
+}
+
+.online-match-notice {
+    min-height: 28px;
+    margin: 4px auto 6px;
+    color: #D4AF37;
+    font-weight: bold;
+}
+
+.spectator-count {
+    color: #D1D5DB;
+    font-size: 14px;
+    margin: 5px 0 8px;
+}
+
+.spectator-box {
+    max-width: 600px;
+    margin: 25px auto;
+}
+
+.live-match-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.live-match-button {
+    width: 100%;
+    padding: 14px;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    background: #273449;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.live-match-button:hover {
+    background: #374151;
+}
+
+.live-empty {
+    padding: 15px;
+    color: #D1D5DB;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    background: #1F2937;
+}
+
+.rematch-message {
+    color: #D4AF37;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.rematch-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.rematch-button {
+    padding: 10px 18px;
+    border-radius: 8px;
+    border: 1px solid #4B5563;
+    color: white;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.rematch-accept {
+    background: #166534;
+}
+
+.rematch-refuse {
+    background: #991B1B;
+}
+
+.rematch-request {
+    background: #273449;
+}
+
+/* RESULTAT ONLINE */
+
+.online-result {
+    display: none;
+    margin: 12px auto;
+    padding: 12px;
+    max-width: 600px;
+    border: 1px solid #D4AF37;
+    border-radius: 9px;
+    color: #D4AF37;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.online-result.show {
+    display: block;
+}
+
+/* TABLEAU */
+
+.board-area {
+    width: min(96vw, 760px);
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 20px auto;
+    display: grid;
+    grid-template-columns: clamp(18px, 4vw, 30px) minmax(0, 1fr);
+    grid-template-rows: clamp(18px, 4vw, 30px) minmax(0, 1fr);
+    aspect-ratio: 1 / 1;
+    background: #f8fafc;
+    border: clamp(2px, 0.45vw, 5px) solid #b7bec8;
+    border-radius: 8px;
+    padding: clamp(2px, 0.35vw, 4px);
+    overflow: hidden;
+}
+.board-area > * { min-width: 0; min-height: 0; }
+.board-area .board { width: 100%; height: 100%; max-width: 100%; aspect-ratio: 1 / 1; }
+.board-area .letters, .board-area .numbers { min-width: 0; min-height: 0; overflow: hidden; }
+.board-area .letters span, .board-area .numbers span { min-width: 0; text-align: center; font-size: clamp(7px, 1.3vw, 12px); line-height: 1; color: #172033; }
+.board-area .letters span { font-weight: 800; }
+.board-area .numbers span { font-weight: 700; }
+
+.letters {
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: repeat(20, 1fr);
+    align-items: center;
+    justify-items: center;
+    font-size: 12px;
+    font-weight: bold;
+    color: #111;
+}
+
+.numbers {
+    grid-row: 2;
+    display: grid;
+    grid-template-rows: repeat(20, 1fr);
+    align-items: center;
+    justify-items: center;
+    font-size: 12px;
+    font-weight: bold;
+    color: #111;
+}
+
+.board {
+    grid-column: 2;
+    grid-row: 2;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(20, minmax(0, 1fr));
+    grid-template-rows: repeat(20, minmax(0, 1fr));
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.cell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.cell::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: #aab3bf;
+}
+
+.cell::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    background: #aab3bf;
+}
+
+/* PIONS */
+
+.stone {
+    width: 74%;
+    height: 74%;
+    flex: 0 0 74%;
+    border-radius: 50%;
+    position: relative;
+    z-index: 5;
+}
+
+.black {
+    background: #111111;
+}
+
+.red {
+    background: #DC2626;
+}
+
+/* LIGNE VICTOIRE */
+
+.winning-line-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 20;
+    pointer-events: none;
+}
+
+.winning-line-svg line {
+    stroke: #D4AF37;
+    stroke-width: 4;
+    stroke-linecap: round;
+}
+
+/* VICTOIRE */
+
+.win-title {
+    font-size: 34px;
+    margin-top: 60px;
+}
+
+.win-message {
+    font-size: 21px;
+    color: #D4AF37;
+    font-weight: bold;
+    margin: 25px 0;
+}
+
+.win-buttons {
+    max-width: 380px;
+    margin: 25px auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.undo-box {
+    margin-top: 12px;
+}
+
+.undo-button {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    margin: 4px;
+}
+
+.undo-request {
+    background: #2563EB;
+    color: #FFFFFF;
+}
+
+.undo-accept {
+    background: #16A34A;
+    color: #FFFFFF;
+}
+
+.undo-refuse {
+    background: #DC2626;
+    color: #FFFFFF;
+}
+
+/* MOBILE */
+
+@media (max-width: 500px) {
+
+    .app {
+        padding: 12px 6px;
+    }
+
+    h1 {
+        font-size: 24px;
+    }
+
+    .main-menu {
+        margin: 35px auto;
+        padding: 0 10px;
+    }
+
+    .menu-button {
+        font-size: 16px;
+        padding: 15px;
+    }
+
+    .board-area {
+        width: min(calc(100vw - 18px), 760px);
+        grid-template-columns: 18px minmax(0, 1fr);
+        grid-template-rows: 18px minmax(0, 1fr);
+        border-width: 2px;
+        padding: 2px;
+        margin: 12px auto;
+    }
+    .board-area .letters span, .board-area .numbers span { font-size: clamp(6px, 1.8vw, 8px); }
+
+    .letters,
+    .numbers {
+        font-size: 9px;
+    }
+
+    .stone {
+        width: 68%;
+    }
+
+    .action-button {
+        font-size: 13px;
+        padding: 9px 12px;
+    }
+
+    .player-timer {
+        min-width: 115px;
+        padding: 8px 10px;
+    }
+
+    .timer-value {
+        font-size: 19px;
+    }
+
+    .score-board {
+        gap: 8px;
+        font-size: 14px;
+    }
+
+    .score-player {
+        padding: 6px 10px;
+    }
+
+    .score-player span {
+        font-size: 18px;
+    }
+
+    .rematch-button {
+        font-size: 13px;
+        padding: 9px 13px;
+    }
+
+    .online-choice {
+        font-size: 15px;
+    }
+
+    .win-title {
+        font-size: 28px;
+    }
+
+    .win-message {
+        font-size: 18px;
+    }
+}
+
+    /* ==================================================
+       COMPTE / MENU JOUEUR
+    ================================================== */
+
+    .account-box,
+    .profile-box,
+    .settings-box,
+    .waiting-box,
+    .spectator-box {
+        max-width: 420px;
+        margin: 22px auto;
+        padding: 20px;
+        border: 1px solid #374151;
+        border-radius: 14px;
+        background: #1F2937;
+        box-sizing: border-box;
+    }
+
+    .account-box h2 {
+        margin: 8px 0 14px;
+        color: #D4AF37;
+    }
+
+    .account-box input,
+    .spectator-box input {
+        width: 100%;
+        box-sizing: border-box;
+        margin: 7px 0;
+        padding: 12px 14px;
+        border: 1px solid #4B5563;
+        border-radius: 9px;
+        background: #111827;
+        color: #F9FAFB;
+        outline: none;
+    }
+
+    .account-button {
+        width: 100%;
+        margin-top: 8px;
+        padding: 12px;
+        border: 1px solid #D4AF37;
+        border-radius: 9px;
+        background: #374151;
+        color: #F9FAFB;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .account-button:hover {
+        background: #4B5563;
+    }
+
+    .account-separator {
+        height: 1px;
+        background: #374151;
+        margin: 22px 0;
+    }
+
+    .account-status {
+        min-height: 24px;
+        margin-top: 12px;
+        color: #D1D5DB;
+        text-align: center;
+    }
+
+    .account-user,
+    .account-user-menu {
+        max-width: 420px;
+        margin: 15px auto;
+        padding: 12px;
+        border: 1px solid #D4AF37;
+        border-radius: 10px;
+        background: #1F2937;
+        color: #D4AF37;
+        font-weight: bold;
+        text-align: center;
+        box-sizing: border-box;
+    }
+
+    .account-menu-list {
+        margin: 25px auto;
+    }
+
+    .logout-button {
+        background: #7F1D1D !important;
+        border-color: #991B1B !important;
+    }
+
+    .logout-button:hover {
+        background: #991B1B !important;
+    }
+
+    .profile-row {
+        padding: 12px 0;
+        border-bottom: 1px solid #374151;
+    }
+
+    .profile-row:last-child {
+        border-bottom: none;
+    }
+
+    .profile-label {
+        display: block;
+        color: #9CA3AF;
+        font-size: 13px;
+        margin-bottom: 4px;
+    }
+
+    .profile-value {
+        font-size: 17px;
+        font-weight: bold;
+        word-break: break-word;
+    }
+
+    .settings-box {
+        text-align: center;
+        color: #D1D5DB;
+        line-height: 1.5;
+    }
+
+    .waiting-list {
+        text-align: left;
+        margin: 15px 0;
+    }
+
+    .waiting-player {
+        padding: 12px;
+        margin: 8px 0;
+        border-radius: 9px;
+        background: #111827;
+        border: 1px solid #374151;
+    }
+
+    .spectator-count {
+        margin: 10px auto;
+        padding: 9px 12px;
+        border-radius: 9px;
+        background: #1F2937;
+        color: #D4AF37;
+        font-weight: bold;
+        text-align: center;
+    }
+
+
+.online-players-box{max-width:600px;margin:16px auto;padding:16px;border:1px solid #374151;border-radius:12px;background:#1F2937}.online-players-title{color:#D4AF37;font-weight:bold;text-align:center;margin-bottom:10px}.online-players-list{display:flex;flex-direction:column;gap:8px}.online-player-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:9px;background:#111827;border:1px solid #374151}.online-player-name{min-width:0;color:#F9FAFB;font-weight:bold;overflow-wrap:anywhere}.online-player-state{color:#86EFAC;font-size:12px;margin-left:6px}.online-player-invite{padding:8px 12px;border-radius:8px;border:1px solid #D4AF37;background:#273449;color:#F9FAFB;font-weight:bold;cursor:pointer}.online-player-invite:disabled{opacity:.5;cursor:not-allowed}.online-players-status{color:#9CA3AF;text-align:center;font-size:13px;margin-top:9px}.game-invite-box{display:none;max-width:600px;margin:12px auto;padding:14px;border:1px solid #D4AF37;border-radius:12px;background:#1F2937;text-align:center}.game-invite-message{color:#D4AF37;font-weight:bold;margin-bottom:10px}.game-invite-actions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}.game-invite-actions button{padding:10px 18px;border-radius:8px;border:1px solid #4B5563;color:white;font-weight:bold;cursor:pointer}.invite-accept{background:#166534}.invite-refuse{background:#991B1B}
+
+/* ==================================================
+   WALLET / DEFIS — PREPARATION
+   Mode test: aucune vraie transaction n'est exécutée
+================================================== */
+.wallet-box,.bet-box,.admin-box{max-width:650px;margin:16px auto;padding:18px;border:1px solid #374151;border-radius:14px;background:#1F2937;text-align:left}.wallet-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.wallet-card{padding:16px;border-radius:12px;background:#111827;border:1px solid #374151}.wallet-card small{display:block;color:#9CA3AF}.wallet-card strong{display:block;font-size:25px;margin-top:6px;color:#D4AF37}.wallet-actions,.bet-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.wallet-actions button,.bet-actions button{flex:1;min-width:150px;padding:11px;border-radius:9px;border:1px solid #4B5563;color:white;background:#273449;font-weight:bold;cursor:pointer}.primary-pay{background:#166534!important;border-color:#22C55E!important}.danger-pay{background:#7F1D1D!important}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.form-row input,.form-row select,.bet-box input,.bet-box select{width:100%;padding:11px;border-radius:9px;border:1px solid #4B5563;background:#111827;color:white}.notice-test{padding:12px;border-radius:10px;background:#422006;border:1px solid #D97706;color:#FED7AA;margin-bottom:12px;font-size:13px}.calc-box{margin-top:14px;padding:14px;border-radius:10px;background:#111827;border:1px solid #374151;line-height:1.8}.history-item{padding:10px;border-bottom:1px solid #374151;color:#D1D5DB}.history-item:last-child{border-bottom:0}.admin-stat{font-size:28px;color:#D4AF37;font-weight:bold}.@media(max-width:600px){.form-row{grid-template-columns:1fr}}
+
+
+/* ==================================================
+   MR_JERY LANDING / AUTH REDESIGN
+================================================== */
+body{background:#030916;color:#fff;font-family:Inter,Segoe UI,Arial,sans-serif;overflow-x:hidden}.app{max-width:none;padding:0}.screen{min-height:100vh}.landing-shell{min-height:100vh;background:radial-gradient(circle at 50% 35%,rgba(0,91,180,.25),transparent 38%),linear-gradient(135deg,#020711,#071426 55%,#020711);position:relative;overflow:hidden}.landing-shell:before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 0 38%,rgba(240,174,31,.12) 39%,transparent 41% 62%,rgba(0,128,255,.12) 63%,transparent 66%);pointer-events:none}.landing-header{height:76px;border-bottom:1px solid rgba(91,157,224,.3);display:flex;align-items:center;padding:0 34px;gap:28px;position:relative;z-index:5;background:rgba(2,7,17,.72);backdrop-filter:blur(14px)}.brand-mini{font-weight:800;font-size:22px;display:flex;align-items:center;gap:9px;white-space:nowrap}.brand-mini b{color:#f5b92e}.brand-crown{color:#f5b92e;font-size:30px;text-shadow:0 0 18px rgba(245,185,46,.35)}.landing-nav{display:flex;gap:8px;margin:auto}.nav-link{background:none;border:0;color:#c9d4e8;padding:13px 17px;border-bottom:2px solid transparent;cursor:pointer;font-weight:700}.nav-link.active,.nav-link:hover{color:#f5c13a;border-bottom-color:#f5c13a}.language-wrap{position:relative}.language-button{height:45px;padding:0 16px;border:1px solid #2494ed;border-radius:10px;background:#07172b;color:#fff;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:9px}.language-menu{display:none;position:absolute;right:0;top:52px;width:190px;background:#07172b;border:1px solid #238ddd;border-radius:10px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.45);z-index:20}.language-menu.show{display:block}.language-menu button{display:block;width:100%;padding:12px 14px;border:0;background:transparent;color:#fff;text-align:left;cursor:pointer}.language-menu button:hover{background:#0c65b6}.landing-hero{min-height:calc(100vh - 76px);display:grid;grid-template-columns:minmax(330px,1fr) minmax(420px,1fr);align-items:center;gap:20px;padding:55px 8%;position:relative;z-index:1}.world-map{position:absolute;inset:0;opacity:.2;background-image:radial-gradient(circle,#1684e8 1.4px,transparent 1.4px);background-size:12px 12px;mask-image:radial-gradient(ellipse at 50% 42%,#000 0 42%,transparent 70%)}.hero-logo{text-align:center;position:relative;z-index:1;filter:drop-shadow(0 20px 35px rgba(0,0,0,.55))}.logo-crown{font-size:92px;line-height:.8;color:#f7bf37;text-shadow:0 0 25px rgba(247,191,55,.45)}.logo-ring{width:280px;height:190px;margin:-5px auto -30px;border:9px solid #e9a927;border-radius:50% 50% 42% 42%;background:radial-gradient(circle,#172337,#03070e 70%);box-shadow:inset 0 0 0 3px #7d5a16,0 0 35px rgba(241,174,30,.25);display:flex;align-items:center;justify-content:center}.logo-board-mini{width:130px;height:105px;display:grid;grid-template-columns:repeat(3,1fr);gap:7px;padding:10px;background:linear-gradient(90deg,transparent 48%,#d9a52e 49% 51%,transparent 52%),linear-gradient(0deg,transparent 48%,#d9a52e 49% 51%,transparent 52%);border:2px solid #d9a52e}.logo-board-mini i{width:22px;height:22px;border-radius:50%;background:#f3f5f8;box-shadow:0 3px 8px #000}.logo-board-mini i:nth-child(even){background:#101820}.logo-title{margin-top:0;font-size:54px;font-weight:900;line-height:.88;letter-spacing:-2px;text-transform:uppercase}.logo-title span{display:block;color:#f1f3f7;text-shadow:4px 4px 0 #111,0 0 20px rgba(255,255,255,.15)}.logo-title strong{display:block;color:#f5b92e;text-shadow:3px 4px 0 #111}.hero-copy{position:relative;z-index:2;max-width:650px}.hero-copy h1{font-size:44px;line-height:1.08;margin:0 0 18px}.hero-copy h1 em{color:#f5bb31;font-style:normal}.hero-copy p{font-size:20px;line-height:1.6;color:#d5deec;max-width:610px}.hero-features{display:flex;flex-wrap:wrap;gap:14px 20px;margin:26px 0;color:#dbe5f2}.hero-features span{display:flex;gap:7px;align-items:center}.hero-features b{font-size:14px}.hero-actions{display:flex;gap:15px;flex-wrap:wrap;margin-top:26px}.hero-btn{border-radius:34px;padding:16px 28px;font-size:16px;font-weight:900;cursor:pointer;min-width:220px;border:1px solid #6d88a8;display:flex;justify-content:center;align-items:center;gap:10px}.hero-btn.gold{background:linear-gradient(180deg,#ffd34e,#e8a90e);color:#10151d;border:0;box-shadow:0 10px 30px rgba(240,176,28,.2)}.hero-btn.outline{background:rgba(2,10,22,.7);color:#fff;border-color:#e4edf9}.hero-btn:hover{transform:translateY(-2px)}.about-pill{margin:18px auto 0;display:flex;gap:10px;align-items:center;justify-content:center;padding:11px 25px;border-radius:25px;background:rgba(2,8,18,.5);color:#fff;border:1px solid #91a8c9;cursor:pointer}.landing-features{display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid rgba(91,157,224,.22);background:#030914;padding:32px 5%;position:relative;z-index:2}.landing-features>div{text-align:center;padding:10px 22px;border-right:1px solid rgba(91,157,224,.18)}.landing-features>div:last-child{border:0}.landing-features span{font-size:32px;color:#f5b92e}.landing-features h3{margin:10px 0 7px;color:#fff}.landing-features p{margin:0;color:#aebbd0;font-size:13px;line-height:1.5}.landing-footer{height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#020711;border-top:1px solid rgba(245,185,46,.18);gap:5px}.landing-footer span{color:#f5b92e;font-weight:800;font-size:18px}.landing-footer small{color:#8e9db6}.inner-page-head,.auth-top{height:76px;padding:0 5%;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(91,157,224,.25);background:rgba(2,7,17,.85)}.back-icon{border:1px solid #49627e;background:#08182c;color:#fff;border-radius:10px;width:42px;height:42px;font-size:20px;cursor:pointer}.about-page{max-width:900px;margin:0 auto;padding:70px 20px;text-align:center}.about-logo{margin-bottom:25px}.about-logo .logo-crown{font-size:58px}.about-logo .logo-title{font-size:45px}.about-page h1{font-size:38px}.about-page h1 em{color:#f5b92e;font-style:normal}.about-page>p{color:#c3cfdf;font-size:18px;line-height:1.7}.about-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:40px 0}.about-grid>div{background:rgba(8,24,44,.72);border:1px solid #1c6aa7;border-radius:16px;padding:25px;text-align:left}.about-grid b{color:#f5b92e}.about-grid p{color:#aebbd0;line-height:1.6}.hero-btn.small{min-width:210px;margin:auto}.auth-page{min-height:100vh;background:radial-gradient(circle at 50% 20%,rgba(8,90,174,.25),transparent 35%),#030916}.auth-card{width:min(470px,92vw);margin:50px auto;padding:34px;border:1px solid #1e69a5;border-radius:20px;background:rgba(5,17,32,.94);box-shadow:0 25px 80px rgba(0,0,0,.45)}.auth-mark{width:58px;height:58px;margin:auto;border-radius:50%;display:grid;place-items:center;background:#f5b92e;color:#10151d;font-size:30px}.auth-card h1{text-align:center;margin:18px 0 5px}.auth-card>p{text-align:center;color:#8fa0b8;margin-top:0}.auth-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#071225;border-radius:10px;padding:4px;margin:25px 0}.auth-tab{padding:11px;border:0;border-radius:8px;background:transparent;color:#9fb0c8;cursor:pointer;font-weight:800}.auth-tab.active{background:#123a61;color:#fff}.auth-card label{display:block;color:#cbd7e6;font-size:13px;margin:14px 0 7px}.auth-card input,.auth-card select{width:100%;padding:13px 14px;border-radius:9px;border:1px solid #294a6b;background:#07182d;color:#fff;outline:none}.auth-card input:focus,.auth-card select:focus{border-color:#f5b92e}.auth-options{display:flex;justify-content:space-between;align-items:center;margin:12px 0}.check{display:flex!important;align-items:center;gap:7px;font-size:12px!important;margin:0!important}.check input{width:auto}.link-btn{border:0;background:none;color:#f5bd37;cursor:pointer;padding:0}.auth-main-btn{width:100%;padding:14px;border:0;border-radius:25px;background:linear-gradient(180deg,#ffd24c,#e6a80c);font-weight:900;font-size:16px;cursor:pointer;margin-top:15px}.auth-or{display:flex;align-items:center;gap:12px;color:#6d7d92;margin:20px 0}.auth-or:before,.auth-or:after{content:"";height:1px;background:#24394f;flex:1}.google-btn{width:100%;padding:12px;border:1px solid #34506d;border-radius:24px;background:#0a1c31;color:#fff;font-weight:800;cursor:pointer}.switch-line{text-align:center!important;margin-top:20px!important;font-size:13px}.terms{margin:16px 0!important;line-height:1.4}.account-status{text-align:center}.account-user{text-align:center}.compact .language-button{height:40px}@media(max-width:900px){.landing-hero{grid-template-columns:1fr;padding:35px 6%;text-align:center}.hero-logo{order:0}.hero-copy{margin:auto}.hero-features{justify-content:center}.landing-features{grid-template-columns:repeat(2,1fr)}.landing-features>div{border-bottom:1px solid rgba(91,157,224,.18)}.landing-nav{display:none}.hero-copy h1{font-size:34px}.logo-title{font-size:42px}.about-grid{grid-template-columns:1fr}}@media(max-width:560px){.landing-header{padding:0 15px}.brand-mini{font-size:16px}.brand-crown{font-size:24px}.language-button{padding:0 10px}.hero-actions{justify-content:center}.hero-btn{width:100%}.landing-features{grid-template-columns:1fr}.landing-features>div{border-right:0}.auth-card{margin:25px auto;padding:23px}.auth-top{padding:0 15px}}
+
+
+/* ===== DASHBOARD APRÈ CONNEXION ===== */
+.dashboard-shell{min-height:100vh;background:radial-gradient(circle at 70% 15%,rgba(0,100,210,.20),transparent 30%),linear-gradient(135deg,#020711,#071426 58%,#020711);color:#fff;font-family:Inter,Segoe UI,Arial,sans-serif}
+.dashboard-header{height:76px;border-bottom:1px solid rgba(212,175,55,.25);display:flex;align-items:center;gap:26px;padding:0 28px;background:rgba(2,7,17,.88);position:sticky;top:0;z-index:5;backdrop-filter:blur(10px)}
+.dashboard-brand{font-size:20px;font-weight:800;white-space:nowrap}.dashboard-brand b{color:#f5bd32}.dashboard-crown{color:#f5bd32;font-size:30px;margin-right:8px}
+.dashboard-nav{display:flex;align-items:center;gap:5px;flex:1;justify-content:center}.dash-nav{border:0;background:transparent;color:#dbe5f5;padding:19px 14px;cursor:pointer;font-weight:700;font-size:13px;border-bottom:2px solid transparent}.dash-nav:hover,.dash-nav.active{color:#f5bd32;border-bottom-color:#f5bd32}.dash-nav span{margin-left:4px}
+.dashboard-user{display:flex;align-items:center;gap:9px;min-width:150px}.dash-avatar,.dash-big-avatar{display:grid;place-items:center;border-radius:50%;background:linear-gradient(145deg,#233a60,#0a1426);border:1px solid #d4af37;color:#f5bd32}.dash-avatar{width:38px;height:38px}.dashboard-user strong,.dashboard-user small{display:block}.dashboard-user small{font-size:10px;color:#7fd2ff;margin-top:2px}.dash-user-more{background:none;border:0;color:#fff;font-size:18px;cursor:pointer}
+.dashboard-main{max-width:1180px;margin:0 auto;padding:30px 24px 28px}.welcome-card{min-height:190px;border:1px solid rgba(31,145,255,.35);border-radius:18px;overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:30px 42px;background:radial-gradient(circle at 85% 50%,rgba(0,112,255,.30),transparent 35%),linear-gradient(110deg,#07111f,#0a1d35);box-shadow:0 15px 45px rgba(0,0,0,.25)}.welcome-kicker{font-size:12px;letter-spacing:3px;color:#83bfff;font-weight:800}.welcome-copy h1{font-size:35px;margin:8px 0 2px}.welcome-copy h1 span{color:#f5bd32}.welcome-copy p{margin:0;color:#c8d4e8;font-size:18px}.welcome-copy>strong{font-size:14px}.welcome-line{width:180px;height:2px;background:linear-gradient(90deg,#f5bd32,transparent);margin:18px 0}.welcome-world{font-size:110px;opacity:.9;filter:drop-shadow(0 0 20px rgba(0,130,255,.35))}
+.dashboard-balance-row{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:14px;margin:18px 0}.dash-balance-card,.dash-profile-card{background:#081322;border:1px solid #12385f;border-radius:14px;padding:16px 18px;position:relative}.dash-balance-card small,.dash-profile-card small{display:block;color:#8da1bc;font-size:12px}.dash-balance-card strong{display:block;font-size:25px;color:#f5bd32;margin-top:5px}.dash-balance-card button{position:absolute;right:15px;top:25px;width:28px;height:28px;border-radius:50%;border:1px solid #1b9cff;background:#062442;color:#7dc9ff;cursor:pointer}.dash-profile-card{display:flex;align-items:center;gap:14px}.dash-profile-card strong{display:block;font-size:16px}.dash-big-avatar{width:55px;height:55px;font-size:24px}
+.dashboard-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.dashboard-card{min-height:155px;text-align:left;border:1px solid #0f4a7d;border-radius:15px;background:linear-gradient(145deg,#081727,#06101d);color:#fff;padding:20px;cursor:pointer;transition:.18s;display:flex;flex-direction:column;align-items:flex-start}.dashboard-card:hover{transform:translateY(-3px);border-color:#f5bd32;box-shadow:0 10px 28px rgba(0,0,0,.25)}.dashboard-card.gold-card{border-color:#9d7820;background:linear-gradient(145deg,#111a22,#1a160b)}.dash-card-icon{width:45px;height:45px;border-radius:50%;display:grid;place-items:center;background:#061d33;border:1px solid #f5bd32;font-size:22px;margin-bottom:13px}.dashboard-card strong{font-size:18px;margin-bottom:7px}.dashboard-card small{color:#91a5c1;line-height:1.35}.dashboard-footer-banner{margin-top:18px;padding:14px 18px;border-radius:12px;border:1px solid rgba(212,175,55,.35);background:linear-gradient(90deg,#0a1422,#111b28,#0a1422);display:flex;align-items:center;gap:12px}.dashboard-footer-banner span{font-size:25px;color:#f5bd32}.dashboard-footer-banner strong{flex:1;color:#f5bd32}.dashboard-footer-banner button{border:1px solid #7f1d1d;background:#4a1010;color:#fff;border-radius:8px;padding:8px 13px;font-weight:700;cursor:pointer}
+@media(max-width:900px){.dashboard-header{padding:0 15px;gap:10px}.dashboard-nav{gap:0}.dash-nav{padding:18px 7px;font-size:11px}.dashboard-user{min-width:auto}.dashboard-user>div:nth-child(2){display:none}.dashboard-grid{grid-template-columns:repeat(2,1fr)}.dashboard-balance-row{grid-template-columns:1fr}.welcome-card{padding:25px}.welcome-world{font-size:75px}}
+@media(max-width:600px){.dashboard-brand{font-size:15px}.dashboard-crown{font-size:23px}.dash-nav span{display:none}.dashboard-main{padding:18px 12px}.welcome-card{min-height:175px;padding:22px}.welcome-copy h1{font-size:27px}.welcome-world{font-size:55px}.dashboard-grid{gap:9px}.dashboard-card{min-height:145px;padding:14px}.dashboard-card strong{font-size:15px}.dashboard-footer-banner{align-items:flex-start;flex-wrap:wrap}.dashboard-footer-banner strong{min-width:70%}}
+
+
+/* ===== NOUVELLE IDENTITE VISUELLE : MR_JERY MORPION ===== */
+:root{--neo-bg:#080b16;--neo-panel:#11182a;--neo-panel2:#171f35;--neo-border:#293650;--neo-text:#f5f7ff;--neo-muted:#a7b3cc;--neo-cyan:#43e0d0;--neo-purple:#8b70ff;--neo-blue:#438cff}
+body{background:radial-gradient(ellipse at 50% -10%,rgba(83,88,255,.18),transparent 45%),#080b16!important;color:var(--neo-text)!important;font-family:Inter,"Segoe UI",Arial,sans-serif!important}
+#onlineScreen,#spectatorScreen,#waitingRoomScreen{max-width:1120px;margin:0 auto;padding:30px 22px 40px;min-height:calc(100vh - 30px);position:relative}
+#onlineScreen h1,#spectatorScreen h1,#waitingRoomScreen h1{font-size:clamp(28px,4vw,42px);font-weight:900;letter-spacing:-1.2px;margin:16px 0 10px;background:linear-gradient(100deg,#fff 15%,#b4b9ff 55%,#43e0d0);-webkit-background-clip:text;background-clip:text;color:transparent}
+#onlineScreen h1:after,#spectatorScreen h1:after,#waitingRoomScreen h1:after{content:"";display:block;width:74px;height:4px;border-radius:8px;background:linear-gradient(90deg,var(--neo-purple),var(--neo-cyan));margin:14px auto 0}
+#onlineScreen:before,#spectatorScreen:before,#waitingRoomScreen:before{content:"MR_JERY  /  ARENA";display:block;text-align:left;color:#7e8da9;font-size:11px;font-weight:900;letter-spacing:3px;padding:6px 0 18px;border-bottom:1px solid rgba(130,153,200,.15)}
+#onlineScreen .online-box{max-width:900px;margin:30px auto 22px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+#onlineScreen .online-choice{position:relative;min-height:145px;padding:26px 22px 24px;border:1px solid var(--neo-border);border-radius:20px;background:linear-gradient(145deg,rgba(25,35,59,.98),rgba(14,20,37,.98));color:#f7f8ff;font-size:19px;font-weight:800;text-align:left;box-shadow:0 12px 28px rgba(0,0,0,.18);transition:transform .18s,border-color .18s,background .18s;overflow:hidden}
+#onlineScreen .online-choice:before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:linear-gradient(var(--neo-purple),var(--neo-cyan));opacity:.85}
+#onlineScreen .online-choice:after{content:"↗";position:absolute;right:20px;top:18px;width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:rgba(129,112,255,.13);border:1px solid rgba(139,112,255,.3);color:#a99aff;font-size:18px}
+#onlineScreen .online-choice:hover{transform:translateY(-4px);border-color:var(--neo-purple);background:linear-gradient(145deg,#202c4c,#121a30)}
+#onlineScreen .online-choice:focus-visible,#spectatorScreen button:focus-visible{outline:3px solid var(--neo-cyan);outline-offset:3px}
+#onlineScreen .online-choice:nth-child(1){background:radial-gradient(circle at 100% 0,rgba(67,140,255,.19),transparent 45%),linear-gradient(145deg,#192742,#101729)}
+#onlineScreen .online-choice:nth-child(2){background:radial-gradient(circle at 100% 0,rgba(67,224,208,.14),transparent 45%),linear-gradient(145deg,#192b3a,#101729)}
+#onlineScreen .online-choice:nth-child(3){background:radial-gradient(circle at 100% 0,rgba(139,112,255,.16),transparent 45%),linear-gradient(145deg,#242341,#101729)}
+#onlineScreen .online-choice:nth-child(4){background:radial-gradient(circle at 100% 0,rgba(255,184,91,.13),transparent 45%),linear-gradient(145deg,#30283c,#101729)}
+#onlineScreen .friend-box,#onlineScreen .searching-box,#onlineScreen .online-players-box,#onlineScreen .game-invite-box,#onlineScreen .room{max-width:900px;border:1px solid var(--neo-border);border-radius:18px;background:linear-gradient(145deg,rgba(20,29,49,.98),rgba(12,17,31,.98));box-shadow:0 14px 34px rgba(0,0,0,.18);color:var(--neo-text)}
+#onlineScreen .friend-box{padding:22px;gap:12px}
+#onlineScreen .friend-box input,#spectatorScreen input{background:#090f1f!important;color:#fff!important;border:1px solid #35435f!important;border-radius:12px!important;padding:15px!important;letter-spacing:2px}
+#onlineScreen .friend-box button,#onlineScreen .searching-box button,#onlineScreen .game-invite-actions button,#spectatorScreen button{border:1px solid rgba(139,112,255,.45);border-radius:11px;background:linear-gradient(120deg,#6d5be7,#398edb);color:white;font-weight:800;padding:12px 18px;cursor:pointer;transition:transform .18s,filter .18s}
+#onlineScreen .friend-box button:hover,#onlineScreen .searching-box button:hover,#spectatorScreen button:hover{filter:brightness(1.12);transform:translateY(-1px)}
+#onlineScreen .online-players-box{padding:20px;text-align:left}
+#onlineScreen .online-players-title{color:var(--neo-cyan);text-align:left;font-size:15px;letter-spacing:.5px}
+#onlineScreen .online-player-row{background:#0a1020;border:1px solid #26334d;border-radius:12px;padding:13px}
+#onlineScreen .online-player-invite{background:#192642;color:#fff;border-color:#4a5c80}
+#onlineScreen .room{padding:18px;margin:18px auto;color:var(--neo-muted)}
+#onlineScreen .room span{color:var(--neo-cyan);font-weight:900;letter-spacing:2px}
+#onlineScreen .back-button,#spectatorScreen .back-button,#waitingRoomScreen .back-button{border:1px solid #33415d;border-radius:12px;background:#141d31;color:#dce5fa;padding:12px 22px;font-weight:800;cursor:pointer}
+#onlineScreen .back-button:hover,#spectatorScreen .back-button:hover,#waitingRoomScreen .back-button:hover{border-color:var(--neo-cyan);color:var(--neo-cyan)}
+#onlineScreen .error,#spectatorScreen .error{color:#ff8c9a}
+#spectatorScreen .spectator-box,#waitingRoomScreen .waiting-box{max-width:900px;margin:28px auto;padding:25px;border:1px solid var(--neo-border);border-radius:20px;background:linear-gradient(145deg,rgba(20,29,49,.98),rgba(12,17,31,.98));box-shadow:0 18px 45px rgba(0,0,0,.22);text-align:left}
+#spectatorScreen .spectator-box .status{font-size:17px;font-weight:800;color:#e9edff;margin-bottom:18px}
+#spectatorScreen .live-match-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;margin:16px 0}
+#spectatorScreen .live-match-list:empty:before{content:"Pa gen match ki parèt isit la pou kounye a. Peze Actualiser pou tcheke ankò.";display:block;grid-column:1/-1;border:1px dashed #35415b;border-radius:14px;padding:24px;text-align:center;color:var(--neo-muted);line-height:1.6}
+#spectatorScreen .live-match-list>div,#spectatorScreen .live-match-list>button{min-width:0;border-radius:14px!important;background:#0c1427!important;border:1px solid #2a3855!important;color:#f6f7ff!important;padding:17px!important}
+#spectatorScreen #refreshSpectatorBtn{margin-top:12px}
+#waitingRoomScreen .waiting-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}
+#waitingRoomScreen .waiting-player{background:#0b1222;border:1px solid #293651;border-radius:12px;padding:16px;color:#dce5fa}
+#waitingRoomScreen .waiting-status,#waitingRoomScreen .status{color:var(--neo-cyan)}
+@media(max-width:650px){#onlineScreen,#spectatorScreen,#waitingRoomScreen{padding:18px 12px 30px}#onlineScreen .online-box{grid-template-columns:1fr;gap:12px;margin-top:22px}#onlineScreen .online-choice{min-height:105px;padding:22px 18px;font-size:17px}#spectatorScreen .live-match-list,#waitingRoomScreen .waiting-list{grid-template-columns:1fr}#spectatorScreen .spectator-box,#waitingRoomScreen .waiting-box{padding:16px}}
+
+
+/* Paramètres d'invitation et styles locaux du tableau */
+.invite-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;text-align:left;margin:10px 0}
+.invite-settings-grid label,.board-style-label{display:flex;flex-direction:column;gap:6px;color:#E5E7EB;font-size:14px;font-weight:700}
+.invite-settings-grid select,.board-style-label select{width:100%;min-height:44px;padding:9px 10px;border-radius:9px;border:1px solid #4B5563;background:#111827;color:#fff;font-size:15px}
+.board-style-label{max-width:100%;text-align:left}
+.board-style-midnight .board{background:#172033!important;border-color:#64748b!important}
+.board-style-midnight .cell{border-color:#64748b!important}
+.board-style-mint .board{background:#d9fbe8!important;border-color:#4d8d70!important}
+.board-style-mint .cell{border-color:#8bbda1!important}
+.board-style-rose .board{background:#fff0f5!important;border-color:#d68aa8!important}
+.board-style-rose .cell{border-color:#e3a9be!important}
+.board-style-sand .board{background:#f4e7c5!important;border-color:#c5a96b!important}
+.board-style-sand .cell{border-color:#cbb783!important}
+@media(max-width:480px){.invite-settings-grid{grid-template-columns:1fr}}
+
+/* Keep the original landing page visible so players can choose Connexion or Créer un compte. */
+
+/* Ajustements responsive MR_Jery : tableaux et navigation */
+html { -webkit-text-size-adjust: 100%; }
+.dashboard-shell, .dashboard-main, .dashboard-header, .dashboard-nav,
+.wallet-box, .bet-box, .admin-box, .profile-box { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.dashboard-header { flex-wrap: wrap; }
+.dashboard-nav { flex-wrap: wrap; min-width: 0; }
+.dash-nav { white-space: nowrap; }
+.wallet-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); }
+.history-item, .profile-value, .online-player-row, .status, .notice-test { overflow-wrap: anywhere; }
+/* Nenpòt tablo HTML dwe rete andedan ekran an sou telefòn. */
+table { width: 100%; max-width: 100%; border-collapse: collapse; }
+.table-wrap, .table-responsive, .ranking-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+td, th { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .dashboard-header { align-items: flex-start; }
+  .dashboard-brand { flex: 1 1 100%; }
+  .dashboard-nav { order: 3; width: 100%; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap; }
+  .dash-nav { padding: 10px 8px; font-size: 11px; }
+  .dashboard-user { margin-left: auto; }
+  .wallet-box, .bet-box, .admin-box { padding: 12px; }
+  .board-area { margin-left: auto; margin-right: auto; }
+}
+
+/* ===== MR_JERY PREMIUM — PRESENTATION ===== */
+.premium-page{max-width:1100px;margin:0 auto;padding:34px 18px 50px}
+.premium-heading{text-align:center;max-width:700px;margin:0 auto 26px}
+.premium-crown{display:inline-grid;place-items:center;width:62px;height:62px;border-radius:50%;background:linear-gradient(145deg,#ffe7a0,#c18a19);color:#17120a;font-size:34px;box-shadow:0 8px 30px rgba(212,175,55,.24)}
+.premium-kicker{color:#d4af37!important;letter-spacing:4px;font-size:11px;font-weight:900;margin:13px 0 4px}
+.premium-heading h1{font-size:clamp(30px,5vw,48px);margin:4px 0 8px;color:#fff}
+.premium-heading h1 em{font-style:normal;background:linear-gradient(90deg,#fff0b5,#d4af37);-webkit-background-clip:text;background-clip:text;color:transparent}
+.premium-intro{color:#aebbd0;line-height:1.6;margin:0 auto}
+.premium-status{max-width:760px;margin:0 auto 18px;min-height:20px}
+.premium-plans{max-width:1000px;margin:0 auto 20px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.premium-plan{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:190px;padding:22px 20px;text-align:left;border:1px solid #34445b;border-radius:17px;background:linear-gradient(155deg,#101d31,#08111f);color:#fff;cursor:pointer;transition:transform .18s,border-color .18s,box-shadow .18s}
+.premium-plan:hover{transform:translateY(-3px);border-color:#b78a2c}
+.premium-plan[aria-pressed="true"]{border:2px solid #d4af37;box-shadow:0 0 0 3px rgba(212,175,55,.12),0 14px 35px rgba(0,0,0,.22)}
+.premium-plan-name{font-size:12px;letter-spacing:2px;color:#d4af37;font-weight:900}
+.premium-plan strong{font-size:34px;line-height:1.1}
+.premium-plan small{color:#aebbd0;font-size:13px}
+.premium-plan-desc{color:#b8c4d6;font-size:12px;line-height:1.5;margin-top:auto}
+.premium-plan-featured{background:linear-gradient(155deg,#2a2416,#101a2a)}
+.premium-popular{position:absolute;right:13px;top:13px;padding:5px 8px;border-radius:20px;background:#d4af37;color:#17120a;font-size:9px;font-weight:900;letter-spacing:1px}
+.premium-checkout{max-width:650px;padding:24px;border-color:rgba(212,175,55,.35);background:linear-gradient(145deg,#111d30,#080f1c);box-shadow:0 18px 50px rgba(0,0,0,.22)}
+.premium-checkout h2{margin-top:0;color:#fff}
+.premium-secure{color:#a9d8b6;font-size:13px}
+.premium-checkout label{display:block;margin:14px 0 7px;color:#d5deeb;font-size:13px;font-weight:700}
+.premium-checkout select,.premium-checkout input[type=file]{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #3b4d65;background:#091426;color:#fff}
+.premium-hidden-select{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
+.premium-submit{width:100%;margin-top:18px;padding:14px;border-radius:11px;font-size:15px;font-weight:900;cursor:pointer;background:linear-gradient(180deg,#f5d77d,#c39227)!important;border:0!important;color:#17120a!important}
+.premium-submit:disabled{opacity:.55;cursor:not-allowed}
+.premium-footnote{display:block;margin-top:13px;color:#9aa9bd;line-height:1.6;font-size:11px}
+@media(max-width:700px){.premium-plans{grid-template-columns:1fr}.premium-plan{min-height:145px}.premium-page{padding:25px 12px 40px}.premium-checkout{padding:17px}}
+
+
+/* ===== MR_JERY TOURNAMENT ADD-ON ===== */
+.tournament-page{max-width:1220px;margin:0 auto;padding:28px 20px 60px;color:#f7f8fc}
+.tournament-top{display:flex;align-items:center;justify-content:space-between;gap:15px;padding-bottom:20px;border-bottom:1px solid #24354e}
+.tournament-top small{color:#d7ad43;letter-spacing:3px;font-weight:900}.tournament-top h1{margin:4px 0;font-size:clamp(25px,4vw,38px)}
+.tournament-refresh,.tournament-secondary{border:1px solid #405573;background:#12213a;color:#f5f7ff;border-radius:10px;padding:11px 15px;font-weight:800;cursor:pointer}
+.tournament-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-top:22px}
+.tournament-create-card,.tournament-list-card,.tournament-detail-card,.tournament-admin-card{background:linear-gradient(145deg,#111d31,#07111f);border:1px solid #2b3e5c;border-radius:18px;padding:22px;box-shadow:0 16px 40px rgba(0,0,0,.2);margin-bottom:18px}
+.tournament-section-title{display:flex;align-items:center;gap:13px;margin-bottom:20px}.tournament-section-title>span{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:#332916;color:#f5c85b;font-weight:900}.tournament-section-title h2,.tournament-admin-card h2{margin:0 0 5px;font-size:20px}.tournament-section-title p,.tournament-admin-card p{margin:0;color:#9eacc2;font-size:13px;line-height:1.5}
+.tournament-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.tournament-form-grid label,.tournament-prizes label{display:flex;flex-direction:column;gap:7px;color:#cbd6e7;font-size:12px;font-weight:800}.tournament-form-grid input,.tournament-form-grid select,.tournament-admin-row input,.tournament-chat-compose input{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #344a68;background:#081426;color:#fff;min-width:0}.tournament-wide{grid-column:1/-1}.tournament-prizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:14px;border:1px solid #35445d;border-radius:12px;background:#0a1628}.tournament-prizes>strong,.tournament-prizes>small{grid-column:1/-1}.tournament-prizes small{color:#9eacc2;line-height:1.5}.tournament-primary{width:100%;margin-top:18px;border:0;border-radius:11px;padding:14px;background:linear-gradient(180deg,#ffda7a,#bd8a28);color:#17120a;font-weight:950;font-size:15px;cursor:pointer}
+.tournament-list{display:grid;gap:11px}.tournament-empty{border:1px dashed #3b4b65;border-radius:12px;padding:22px;text-align:center;color:#98a8bf}
+.tournament-item{padding:15px;border:1px solid #31415a;border-radius:13px;background:#0a172a}.tournament-item-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.tournament-item h3{margin:0 0 8px;font-size:17px}.tournament-item p{margin:4px 0;color:#9eacc2;font-size:12px}.tournament-pill{padding:5px 9px;border-radius:30px;background:#243b56;color:#c9e4ff;font-size:10px;font-weight:900;text-transform:uppercase}.tournament-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.tournament-actions button,.tournament-match button{border:1px solid #4b5f7d;border-radius:9px;background:#172844;color:#fff;padding:9px 12px;font-weight:800;cursor:pointer}.tournament-actions .gold{background:#b8892b;color:#15100a;border-color:#e0bd66}
+.tournament-detail-card{margin-top:2px}.tournament-detail-head{display:flex;justify-content:space-between;gap:15px;align-items:flex-start}.tournament-detail-head h2{margin:0 0 8px}.tournament-detail-head p{color:#9eacc2;margin:5px 0;font-size:13px}.tournament-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:17px 0}.tournament-stat{background:#0a1628;border:1px solid #2c3c55;border-radius:11px;padding:12px}.tournament-stat small{display:block;color:#93a5bd;font-size:10px}.tournament-stat strong{display:block;margin-top:5px;font-size:17px;color:#f5ce6a}
+.tournament-register{margin-top:16px;padding:15px;border-radius:12px;background:#0a1628;border:1px solid #354761}.tournament-register h3{margin:0 0 10px}.tournament-register input{display:block;width:100%;box-sizing:border-box;margin:8px 0;padding:11px;border-radius:9px;border:1px solid #354761;background:#081426;color:#fff}
+.tournament-join-steps{padding:12px 14px;margin:10px 0 14px;border:1px solid #344a68;border-radius:10px;background:#081426;color:#dce6f5;font-size:13px;line-height:1.7}
+.tournament-join-steps ol{margin:7px 0 0;padding-left:20px}.tournament-join-steps li{margin:4px 0}.tournament-join-steps b{color:#f5ce6a}
+.tournament-edit-title{margin-top:13px;padding:12px;border:1px solid #66532e;border-radius:11px;background:#171c28}.tournament-edit-title label{display:block;color:#f5ce6a;font-size:12px;font-weight:900;margin-bottom:7px}.tournament-edit-title>div{display:flex;gap:8px;flex-wrap:wrap}.tournament-edit-title input{flex:1;min-width:170px;padding:10px;border-radius:8px;border:1px solid #405573;background:#081426;color:#fff}.tournament-edit-title button{border:0;border-radius:8px;padding:10px 13px;background:#c49738;color:#17120a;font-weight:900;cursor:pointer}.tournament-edit-title small{display:block;margin-top:7px;color:#a9b7ca;font-size:11px;line-height:1.5}
+
+.tournament-tabs{display:flex;gap:7px;margin:20px 0 13px;border-bottom:1px solid #2a3c56}.tournament-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;color:#9eacc2;padding:11px 15px;font-weight:900;cursor:pointer}.tournament-tabs button.active{color:#f5ce6a;border-bottom-color:#d3a43d}
+.tournament-tab-panel{min-height:110px}.tournament-chat-messages{max-height:250px;overflow:auto;display:grid;gap:8px;padding:10px;background:#081426;border-radius:11px}.tournament-chat-line{font-size:13px;color:#d8e2f0;padding:8px;border-bottom:1px solid #1c2c43}.tournament-chat-line strong{color:#f4c75c;margin-right:7px}.tournament-chat-compose,.tournament-admin-row{display:flex;gap:9px;margin-top:10px}.tournament-chat-compose button{border:0;border-radius:9px;background:#c49738;color:#17120a;font-weight:900;padding:0 18px}
+.tournament-note{color:#a9b7ca;font-size:13px;line-height:1.6}.tournament-players-list,.tournament-voice-pending,.tournament-admin-entries,.tournament-bracket{display:grid;gap:9px;margin-top:12px}.tournament-player-row,.tournament-admin-entry,.tournament-match{padding:11px;border-radius:10px;background:#0a1628;border:1px solid #2d405b;display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px}.tournament-match{display:block}.tournament-match button{margin:8px 6px 0 0}.tournament-match small{color:#9eacc2}.tournament-admin-card{margin-top:20px}.tournament-admin-entry{display:block}.tournament-admin-entry img{display:block;max-width:170px;max-height:130px;object-fit:contain;margin:10px 0;border-radius:8px}.tournament-admin-entry button{margin:8px 7px 0 0}.tournament-message{position:sticky;bottom:10px;text-align:center;color:#f5d67e;font-weight:800;min-height:20px}
+@media(max-width:850px){.tournament-layout{grid-template-columns:1fr}.tournament-stat-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.tournament-page{padding:16px 11px 35px}.tournament-top{flex-wrap:wrap}.tournament-top>div{order:-1;width:100%;text-align:center}.tournament-create-card,.tournament-list-card,.tournament-detail-card,.tournament-admin-card{padding:15px}.tournament-form-grid{grid-template-columns:1fr}.tournament-wide{grid-column:auto}.tournament-prizes{grid-template-columns:1fr}.tournament-prizes>strong,.tournament-prizes>small{grid-column:auto}.tournament-detail-head{display:block}.tournament-admin-row{flex-direction:column}.tournament-chat-compose{flex-direction:column}.tournament-chat-compose button{padding:12px}}
+
+</style>
+
+<style id="tournament-visual-refresh">
+/* TOURNOI ONLY — redesign visuel, sans toucher au jeu ni au JavaScript */
+.tournament-page{
+  position:relative;isolation:isolate;max-width:1180px!important;
+  margin:18px auto 34px!important;padding:26px!important;
+  border:1px solid rgba(220,178,82,.22);border-radius:24px;
+  background:radial-gradient(ellipse at 50% -18%,rgba(190,145,52,.16),transparent 48%),linear-gradient(145deg,#101a2c 0%,#080f1c 58%,#0c1422 100%);
+  box-shadow:0 24px 70px rgba(0,0,0,.32);
+}
+.tournament-page:before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;background:linear-gradient(120deg,transparent 15%,rgba(255,255,255,.018) 50%,transparent 82%)}
+.tournament-top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:4px 2px 22px;border-bottom:1px solid rgba(220,178,82,.2)}
+.tournament-top>div{flex:1;text-align:center}
+.tournament-top>div small{display:inline-block;color:#d9b45c;font-size:10px;letter-spacing:4px;font-weight:900}
+.tournament-top h1{margin:7px 0 0;font-size:clamp(25px,4vw,36px);font-weight:950;letter-spacing:.4px;background:linear-gradient(100deg,#fff4cf,#d8ad4f 55%,#fff0bf);-webkit-background-clip:text;background-clip:text;color:transparent}
+.tournament-page .back-button,.tournament-page .tournament-refresh{margin:0;border:1px solid rgba(220,178,82,.34);border-radius:12px;background:rgba(18,31,51,.9);color:#f3d58a;padding:11px 15px;font-weight:850;transition:.2s}
+.tournament-page .back-button:hover,.tournament-page .tournament-refresh:hover{background:#26344b;border-color:#d4aa50;transform:translateY(-1px)}
+.tournament-layout{grid-template-columns:minmax(0,1.02fr) minmax(0,.98fr);gap:20px;margin-top:22px;align-items:start}
+.tournament-create-card,.tournament-list-card,.tournament-detail-card,.tournament-admin-card{
+  position:relative;overflow:hidden;padding:23px;border-radius:19px;
+  border:1px solid rgba(145,166,196,.18);
+  background:linear-gradient(155deg,rgba(22,37,59,.98),rgba(10,19,33,.98));
+  box-shadow:0 15px 38px rgba(0,0,0,.22);margin-bottom:18px
+}
+.tournament-create-card:before,.tournament-list-card:before,.tournament-detail-card:before{content:"";position:absolute;left:22px;right:22px;top:0;height:2px;background:linear-gradient(90deg,transparent,#d4aa50,transparent);opacity:.8}
+.tournament-section-title{align-items:center;gap:14px;margin-bottom:22px}
+.tournament-section-title>span{flex:0 0 42px;width:42px;height:42px;border-radius:13px;background:linear-gradient(145deg,#f1d27e,#a97924);color:#17120a;box-shadow:0 6px 18px rgba(192,145,48,.2)}
+.tournament-section-title h2,.tournament-admin-card h2{font-size:19px;letter-spacing:.1px;color:#fff;margin:0 0 5px}
+.tournament-section-title p,.tournament-admin-card p{color:#a9b9ce;font-size:12px}
+.tournament-form-grid{gap:15px}
+.tournament-form-grid label,.tournament-prizes label{color:#d8e1ee;font-size:12px;letter-spacing:.15px}
+.tournament-form-grid input,.tournament-form-grid select,.tournament-admin-row input,.tournament-chat-compose input,.tournament-register input{
+  min-height:43px;padding:12px 13px;border:1px solid #354966;border-radius:11px;
+  background:#091526;color:#f8fafc;outline:none;transition:border-color .18s,box-shadow .18s
+}
+.tournament-form-grid input:focus,.tournament-form-grid select:focus,.tournament-register input:focus,.tournament-chat-compose input:focus,.tournament-admin-row input:focus{
+  border-color:#d3ad59;box-shadow:0 0 0 3px rgba(211,173,89,.13)
+}
+.tournament-form-grid input::placeholder,.tournament-register input::placeholder,.tournament-chat-compose input::placeholder{color:#71839c}
+.tournament-prizes{gap:11px;padding:15px;border:1px solid rgba(212,170,80,.25);border-radius:14px;background:rgba(8,18,32,.72)}
+.tournament-prizes>strong{color:#f0d28a;font-size:13px}
+.tournament-primary{min-height:48px;margin-top:20px;border-radius:12px;background:linear-gradient(105deg,#f0d17b,#c08e31 58%,#e4bd62);box-shadow:0 8px 22px rgba(176,126,35,.2);font-size:14px;letter-spacing:.2px;transition:transform .18s,filter .18s}
+.tournament-primary:hover{filter:brightness(1.08);transform:translateY(-2px)}
+.tournament-list{gap:12px}
+.tournament-empty{padding:28px 18px;border:1px dashed #53647d;border-radius:14px;background:rgba(7,17,30,.48);color:#a9b9ce}
+.tournament-item{padding:17px;border:1px solid #344761;border-radius:14px;background:linear-gradient(120deg,#0b1a2d,#101e32);transition:border-color .18s,transform .18s}
+.tournament-item:hover{border-color:rgba(219,178,87,.65);transform:translateY(-2px)}
+.tournament-item h3{color:#fff;font-size:16px}
+.tournament-item p{color:#a8b8ce;line-height:1.55}
+.tournament-pill{background:rgba(207,165,76,.15);border:1px solid rgba(207,165,76,.3);color:#f0d48d;letter-spacing:.5px}
+.tournament-actions button,.tournament-match button{border:1px solid #435a78;border-radius:10px;background:#1a2c45;padding:10px 13px;transition:.18s}
+.tournament-actions button:hover,.tournament-match button:hover{border-color:#d0a74e;background:#263a56}
+.tournament-actions .gold{background:linear-gradient(110deg,#f0d17b,#bd8c34);border-color:#e3bd65;color:#17120a}
+.tournament-detail-card{margin-top:22px}
+.tournament-detail-head h2{color:#f6d98e;font-size:23px}
+.tournament-detail-head p{color:#aebdd0}
+.tournament-stat-grid{gap:10px}
+.tournament-stat{border:1px solid #344761;border-radius:13px;background:#0a192c;padding:14px}
+.tournament-stat small{color:#9aadc4;font-size:10px;letter-spacing:.5px;text-transform:uppercase}
+.tournament-stat strong{color:#f0d184;font-size:20px}
+.tournament-register,.tournament-join-steps{border:1px solid #3b506b;border-radius:13px;background:rgba(7,18,32,.72)}
+.tournament-join-steps{color:#d7e1ef;line-height:1.75}
+.tournament-join-steps b{color:#f2d48a}
+.tournament-edit-title{border:1px solid rgba(211,173,89,.4);border-radius:13px;background:rgba(37,31,20,.55)}
+.tournament-edit-title label{color:#f0d28a}
+.tournament-edit-title input{border-radius:9px;background:#091526;color:#fff}
+.tournament-edit-title button{border-radius:9px;background:linear-gradient(110deg,#f0d17b,#bd8c34)}
+.tournament-tabs{gap:5px;margin:20px 0 14px;border-bottom:1px solid #344761}
+.tournament-tabs button{padding:12px 16px;color:#aab9ce}
+.tournament-tabs button.active{color:#f2d48a;border-bottom-color:#d7ad55}
+.tournament-tab-panel{color:#dce5f1}
+.tournament-chat-messages,.tournament-players-list,.tournament-voice-pending,.tournament-admin-entries,.tournament-bracket{gap:10px}
+.tournament-player-row,.tournament-admin-entry,.tournament-match{border:1px solid #344761;border-radius:12px;background:#0b1a2d;color:#e7edf6;padding:13px}
+.tournament-note{color:#aebdd0}
+.tournament-message{color:#f2d48a}
+.tournament-page button:focus-visible{outline:2px solid #e3bf69;outline-offset:3px}
+@media(max-width:850px){.tournament-page{margin:10px auto 24px!important;padding:18px!important}.tournament-layout{grid-template-columns:1fr}}
+@media(max-width:560px){
+ .tournament-page{padding:13px!important;border-radius:17px}
+ .tournament-top{gap:9px;padding-bottom:17px}
+ .tournament-top .back-button,.tournament-top .tournament-refresh{font-size:12px;padding:10px}
+ .tournament-top h1{font-size:25px}
+ .tournament-create-card,.tournament-list-card,.tournament-detail-card,.tournament-admin-card{padding:16px}
+ .tournament-section-title h2{font-size:17px}
+ .tournament-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .tournament-tabs{overflow-x:auto;white-space:nowrap}
+ .tournament-tabs button{padding:11px 12px;font-size:12px}
+}
+</style>
+
+
+<style id="tournament-simple-clear">
+/* Final refinement: clear, simple tournament-only presentation */
+.tournament-page{max-width:1080px!important;padding:22px!important;background:#0d1727!important;border:1px solid #263a54!important;border-radius:18px!important;box-shadow:0 14px 38px rgba(0,0,0,.22)!important}
+.tournament-top{padding:5px 0 18px!important;border-color:#293b53!important}
+.tournament-top>div small{letter-spacing:2.5px!important;color:#d8b766!important}
+.tournament-top h1{font-size:30px!important;letter-spacing:0!important}
+.tournament-subtitle{margin:6px 0 0!important;color:#aebdd0!important;font-size:13px!important}
+.tournament-page .back-button,.tournament-page .tournament-refresh{border-radius:9px!important;background:#17263b!important;color:#e8d39c!important;border:1px solid #354b68!important}
+.tournament-layout{gap:16px!important;margin-top:18px!important}
+.tournament-create-card,.tournament-list-card,.tournament-detail-card,.tournament-admin-card{padding:19px!important;border-radius:14px!important;background:#121f32!important;border:1px solid #2b405b!important;box-shadow:0 8px 22px rgba(0,0,0,.15)!important}
+.tournament-create-card:before,.tournament-list-card:before,.tournament-detail-card:before{display:none!important}
+.tournament-section-title{margin-bottom:17px!important;gap:11px!important}
+.tournament-section-title>span{width:34px!important;height:34px!important;flex-basis:34px!important;border-radius:10px!important;background:#d8b766!important;color:#182132!important;box-shadow:none!important}
+.tournament-section-title h2{font-size:17px!important;margin-bottom:4px!important}
+.tournament-section-title p{font-size:12px!important;line-height:1.45!important;color:#aab9cd!important}
+.tournament-form-grid{gap:12px!important}
+.tournament-form-grid label,.tournament-prizes label{font-size:12px!important;gap:6px!important;color:#e0e8f2!important}
+.tournament-form-grid label small{font-size:10px;color:#91a4bd;font-weight:500;line-height:1.4}
+.tournament-form-grid input,.tournament-form-grid select,.tournament-admin-row input,.tournament-chat-compose input,.tournament-register input{min-height:40px!important;padding:10px 11px!important;border-radius:8px!important;background:#091525!important;border:1px solid #354a65!important}
+.tournament-form-grid input:focus,.tournament-form-grid select:focus{border-color:#d8b766!important;box-shadow:0 0 0 2px rgba(216,183,102,.12)!important}
+.tournament-prizes{padding:12px!important;gap:9px!important;border-radius:10px!important;background:#0c192a!important;border:1px solid #31455e!important}
+.tournament-prizes>strong{font-size:12px!important;color:#e8ce8e!important}
+.tournament-prizes small{font-size:10px!important}
+.tournament-primary{min-height:44px!important;margin-top:15px!important;padding:12px!important;border-radius:9px!important;background:#d8b766!important;color:#1b1b18!important;box-shadow:none!important;font-size:13px!important}
+.tournament-primary:hover{filter:brightness(1.06)!important;transform:translateY(-1px)!important}
+.tournament-list{gap:9px!important}
+.tournament-empty{padding:22px 14px!important;border-radius:10px!important;background:#0c192a!important;border-color:#40536d!important;font-size:12px!important;line-height:1.6}
+.tournament-item{padding:13px!important;border-radius:10px!important;background:#0c192a!important;border:1px solid #31465f!important}
+.tournament-item:hover{transform:none!important;border-color:#b99a55!important}
+.tournament-item h3{font-size:15px!important}
+.tournament-item p{font-size:11px!important;line-height:1.5!important}
+.tournament-pill{font-size:9px!important}
+.tournament-actions{gap:7px!important}
+.tournament-actions button,.tournament-match button{padding:9px 11px!important;border-radius:8px!important;font-size:11px!important}
+.tournament-actions .gold{background:#d8b766!important;color:#1b1b18!important}
+.tournament-detail-card{margin-top:16px!important}
+.tournament-detail-head h2{font-size:20px!important}
+.tournament-stat-grid{gap:8px!important}
+.tournament-stat{padding:11px!important;border-radius:9px!important;background:#0c192a!important}
+.tournament-stat strong{font-size:17px!important}
+.tournament-register,.tournament-join-steps{padding:12px!important;border-radius:10px!important;background:#0c192a!important}
+.tournament-join-steps{font-size:12px!important;line-height:1.6!important}
+.tournament-edit-title{padding:11px!important;border-radius:10px!important}
+.tournament-tabs{margin:15px 0 12px!important}
+.tournament-tabs button{font-size:12px!important;padding:10px 12px!important}
+.tournament-admin-card{margin-top:16px!important}
+.tournament-admin-card h2{font-size:16px!important}
+.tournament-admin-card p,.tournament-note{font-size:11px!important;line-height:1.55!important}
+.tournament-message{font-size:12px!important}
+@media(max-width:850px){.tournament-layout{grid-template-columns:1fr!important}}
+@media(max-width:560px){
+ .tournament-page{padding:12px!important;margin:8px auto 20px!important}
+ .tournament-top{display:grid!important;grid-template-columns:1fr 1fr!important;align-items:center}
+ .tournament-top>div{grid-column:1/-1;grid-row:1;text-align:center}
+ .tournament-top .back-button{grid-column:1;grid-row:2;justify-self:start}
+ .tournament-top .tournament-refresh{grid-column:2;grid-row:2;justify-self:end}
+ .tournament-top h1{font-size:25px!important}
+ .tournament-create-card,.tournament-list-card,.tournament-detail-card,.tournament-admin-card{padding:14px!important}
+ .tournament-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+</style>
+
+<style id="mrjery-tournament-pro">
+/* Tournament-only visual layer. Original application styles are preserved. */
+#tournamentScreen.tournament-page{--t-gold:#e8bd63;--t-gold2:#f6d995;--t-line:rgba(171,190,215,.16);--t-muted:#9aabc1;position:relative;isolation:isolate;max-width:1320px!important;width:calc(100% - 32px);margin:22px auto 48px!important;padding:28px!important;color:#edf3fb;border:1px solid rgba(232,189,99,.2);border-radius:26px;background:radial-gradient(ellipse at 50% -15%,rgba(232,189,99,.13),transparent 42%),linear-gradient(145deg,#0e1a2b,#080f1b 68%,#0c1727);box-shadow:0 28px 80px rgba(0,0,0,.34);overflow:hidden}
+#tournamentScreen:before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.2;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:34px 34px}
 #tournamentScreen .tournament-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:18px;padding:4px 0 25px;border-bottom:1px solid var(--t-line)}
 #tournamentScreen .tournament-top>div{grid-column:2;grid-row:1;text-align:center;min-width:0}
-#tournamentScreen .tournament-top>div:before{content:"COMPETE  •  CONNECT  •  WIN";display:block;margin-bottom:10px;color:var(--t-gold);font-size:9px;font-weight:950;letter-spacing:3.5px}
+#tournamentScreen .tournament-top>div:before{content:"COMPETE • CONNECT • WIN";display:block;margin-bottom:10px;color:var(--t-gold);font-size:9px;font-weight:950;letter-spacing:3px}
 #tournamentScreen .tournament-top small{display:none}
-#tournamentScreen .tournament-top h1{margin:0;font-size:clamp(30px,4vw,44px);line-height:1.1;letter-spacing:-1.2px;font-weight:950;color:#fff}
-#tournamentScreen .tournament-subtitle{margin:9px 0 0;color:#a9b8cb;font-size:13px;line-height:1.6}
+#tournamentScreen .tournament-top h1{margin:0;color:#fff;font-size:clamp(30px,4vw,44px);font-weight:950}
+#tournamentScreen .tournament-subtitle{margin:9px 0 0;color:#a9b8cb;font-size:13px}
 #tournamentScreen .tournament-top .back-button{grid-column:1;grid-row:1;justify-self:start}
 #tournamentScreen .tournament-top .tournament-refresh{grid-column:3;grid-row:1;justify-self:end}
-#tournamentScreen .tournament-top .back-button,#tournamentScreen .tournament-refresh{
-  min-height:42px;margin:0;padding:10px 15px;border:1px solid rgba(183,201,225,.2);border-radius:12px;
-  background:rgba(17,31,49,.9);color:#e8edf5;font-size:12px;font-weight:850;cursor:pointer;transition:.2s
-}
-#tournamentScreen .tournament-top .back-button:hover,#tournamentScreen .tournament-refresh:hover{border-color:var(--t-gold);color:var(--t-gold2);transform:translateY(-2px)}
-#tournamentScreen .tournament-layout{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:20px;margin-top:24px;align-items:stretch}
-#tournamentScreen .tournament-create-card,#tournamentScreen .tournament-list-card,#tournamentScreen .tournament-detail-card,#tournamentScreen .tournament-admin-card{
-  position:relative;min-width:0;margin:0 0 20px;padding:24px;border:1px solid var(--t-line);border-radius:20px;
-  background:linear-gradient(155deg,rgba(19,33,52,.98),rgba(11,21,35,.98));box-shadow:0 14px 38px rgba(0,0,0,.2)
-}
-#tournamentScreen .tournament-create-card:after,#tournamentScreen .tournament-list-card:after{content:"";position:absolute;left:24px;right:24px;top:0;height:2px;background:linear-gradient(90deg,transparent,var(--t-gold),transparent);opacity:.85}
+#tournamentScreen .tournament-top .back-button,#tournamentScreen .tournament-refresh{min-height:42px;margin:0;padding:10px 15px;border:1px solid rgba(183,201,225,.2);border-radius:12px;background:#111f31;color:#e8edf5;font-size:12px;font-weight:850;cursor:pointer}
+#tournamentScreen .tournament-layout{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:20px;margin-top:24px}
+#tournamentScreen .tournament-create-card,#tournamentScreen .tournament-list-card,#tournamentScreen .tournament-detail-card,#tournamentScreen .tournament-admin-card{position:relative;min-width:0;margin:0 0 20px;padding:24px;border:1px solid var(--t-line);border-radius:20px;background:linear-gradient(155deg,#132134,#0b1523);box-shadow:0 14px 38px rgba(0,0,0,.2)}
 #tournamentScreen .tournament-section-title{display:flex;align-items:center;gap:14px;margin:0 0 22px}
-#tournamentScreen .tournament-section-title>span{display:grid;place-items:center;flex:0 0 42px;width:42px;height:42px;border-radius:13px;background:linear-gradient(145deg,#f4d58f,#c28f39);color:#182131;font-size:16px;font-weight:950;box-shadow:0 7px 18px rgba(194,143,57,.2)}
-#tournamentScreen .tournament-section-title h2,#tournamentScreen .tournament-admin-card h2{margin:0 0 5px;color:#fff;font-size:19px;line-height:1.25;font-weight:900;letter-spacing:-.25px}
+#tournamentScreen .tournament-section-title>span{display:grid;place-items:center;flex:0 0 42px;height:42px;border-radius:13px;background:linear-gradient(145deg,#f4d58f,#c28f39);color:#182131;font-weight:950}
+#tournamentScreen .tournament-section-title h2,#tournamentScreen .tournament-admin-card h2{margin:0 0 5px;color:#fff;font-size:19px;font-weight:900}
 #tournamentScreen .tournament-section-title p,#tournamentScreen .tournament-admin-card>p{margin:0;color:var(--t-muted);font-size:12px;line-height:1.55}
 #tournamentScreen .tournament-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
-#tournamentScreen .tournament-form-grid label,#tournamentScreen .tournament-prizes label{display:flex;flex-direction:column;gap:8px;min-width:0;color:#dce6f2;font-size:12px;font-weight:800;line-height:1.4}
-#tournamentScreen .tournament-form-grid label small{color:#8295ae;font-size:10px;font-weight:500;line-height:1.45}
-#tournamentScreen .tournament-form-grid input,#tournamentScreen .tournament-form-grid select,#tournamentScreen .tournament-admin-row input,#tournamentScreen .tournament-chat-compose input,#tournamentScreen .tournament-register input,#tournamentScreen .tournament-edit-title input{
-  width:100%;min-width:0;min-height:45px;box-sizing:border-box;padding:11px 13px;border:1px solid #344a65;border-radius:11px;
-  outline:none;background:#081321;color:#f6f8fc;font:inherit;font-size:13px;transition:border-color .18s,box-shadow .18s
-}
-#tournamentScreen input:focus,#tournamentScreen select:focus{border-color:var(--t-gold)!important;box-shadow:0 0 0 3px rgba(232,189,99,.12)!important}
-#tournamentScreen input::placeholder{color:#71839a}
-#tournamentScreen select{color-scheme:dark}
+#tournamentScreen .tournament-form-grid label,#tournamentScreen .tournament-prizes label{display:flex;flex-direction:column;gap:8px;min-width:0;color:#dce6f2;font-size:12px;font-weight:800}
+#tournamentScreen .tournament-form-grid label small{color:#8295ae;font-size:10px;font-weight:500}
+#tournamentScreen .tournament-form-grid input,#tournamentScreen .tournament-form-grid select,#tournamentScreen .tournament-admin-row input,#tournamentScreen .tournament-chat-compose input,#tournamentScreen .tournament-register input,#tournamentScreen .tournament-edit-title input{width:100%;min-width:0;min-height:45px;box-sizing:border-box;padding:11px 13px;border:1px solid #344a65;border-radius:11px;background:#081321;color:#f6f8fc;font:inherit;font-size:13px}
+#tournamentScreen input:focus,#tournamentScreen select:focus{outline:none;border-color:var(--t-gold);box-shadow:0 0 0 3px rgba(232,189,99,.12)}
 #tournamentScreen .tournament-wide{grid-column:1/-1}
-#tournamentScreen .tournament-prizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px;border:1px solid rgba(232,189,99,.22);border-radius:15px;background:rgba(7,16,28,.72)}
+#tournamentScreen .tournament-prizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px;border:1px solid rgba(232,189,99,.22);border-radius:15px;background:#07101c}
 #tournamentScreen .tournament-prizes>strong,#tournamentScreen .tournament-prizes>small{grid-column:1/-1}
 #tournamentScreen .tournament-prizes>strong{color:var(--t-gold2);font-size:13px}
-#tournamentScreen .tournament-prizes small{color:#879ab2;font-size:10px;line-height:1.5}
-#tournamentScreen .tournament-primary{display:flex;align-items:center;justify-content:center;width:100%;min-height:49px;margin-top:20px;padding:13px 18px;border:0;border-radius:12px;background:linear-gradient(105deg,#f3d48b,#d1a24e 55%,#e8bd63);color:#171b21;font-size:13px;font-weight:950;letter-spacing:.2px;cursor:pointer;box-shadow:0 9px 24px rgba(193,145,57,.18);transition:transform .18s,filter .18s}
-#tournamentScreen .tournament-primary:hover{filter:brightness(1.07);transform:translateY(-2px)}
+#tournamentScreen .tournament-prizes small{color:#879ab2;font-size:10px}
+#tournamentScreen .tournament-primary{display:flex;justify-content:center;align-items:center;width:100%;min-height:49px;margin-top:20px;padding:13px 18px;border:0;border-radius:12px;background:linear-gradient(105deg,#f3d48b,#d1a24e 55%,#e8bd63);color:#171b21;font-size:13px;font-weight:950;cursor:pointer}
 #tournamentScreen .tournament-list{display:grid;gap:12px}
-#tournamentScreen .tournament-empty{padding:34px 20px;border:1px dashed #405570;border-radius:15px;background:rgba(6,15,27,.56);color:#9bacc1;text-align:center;font-size:12px;line-height:1.7}
-#tournamentScreen .tournament-item{padding:17px;border:1px solid #2c415b;border-radius:15px;background:linear-gradient(125deg,#0b192a,#102039);transition:border-color .2s,transform .2s,box-shadow .2s}
-#tournamentScreen .tournament-item:hover{transform:translateY(-2px);border-color:rgba(232,189,99,.55);box-shadow:0 10px 25px rgba(0,0,0,.16)}
+#tournamentScreen .tournament-empty{padding:34px 20px;border:1px dashed #405570;border-radius:15px;background:#06101b;color:#9bacc1;text-align:center;font-size:12px;line-height:1.7}
+#tournamentScreen .tournament-item{padding:17px;border:1px solid #2c415b;border-radius:15px;background:linear-gradient(125deg,#0b192a,#102039)}
 #tournamentScreen .tournament-item-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 #tournamentScreen .tournament-item h3{margin:0 0 9px;color:#fff;font-size:16px;font-weight:900}
 #tournamentScreen .tournament-item p{margin:5px 0;color:#9eafc4;font-size:11px;line-height:1.55}
-#tournamentScreen .tournament-pill{display:inline-flex;align-items:center;white-space:nowrap;padding:6px 10px;border:1px solid rgba(232,189,99,.25);border-radius:99px;background:rgba(232,189,99,.1);color:#f0d18a;font-size:9px;font-weight:950;letter-spacing:.5px;text-transform:uppercase}
+#tournamentScreen .tournament-pill{display:inline-flex;padding:6px 10px;border:1px solid rgba(232,189,99,.25);border-radius:99px;background:rgba(232,189,99,.1);color:#f0d18a;font-size:9px;font-weight:950}
 #tournamentScreen .tournament-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
-#tournamentScreen .tournament-actions button,#tournamentScreen .tournament-match button,#tournamentScreen .tournament-secondary{
-  min-height:37px;padding:9px 13px;border:1px solid #405773;border-radius:10px;background:#1a2d46;color:#e8eef7;font-size:11px;font-weight:850;cursor:pointer;transition:.18s
-}
-#tournamentScreen .tournament-actions button:hover,#tournamentScreen .tournament-match button:hover,#tournamentScreen .tournament-secondary:hover{border-color:var(--t-gold);background:#243b58}
+#tournamentScreen .tournament-actions button,#tournamentScreen .tournament-match button,#tournamentScreen .tournament-secondary{min-height:37px;padding:9px 13px;border:1px solid #405773;border-radius:10px;background:#1a2d46;color:#e8eef7;font-size:11px;font-weight:850;cursor:pointer}
 #tournamentScreen .tournament-actions .gold{border-color:#e5bd68;background:linear-gradient(110deg,#f0d28a,#d2a04b);color:#171b21}
 #tournamentScreen .tournament-detail-card{margin-top:0}
-#tournamentScreen .tournament-detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px}
-#tournamentScreen .tournament-detail-head h2{margin:0 0 9px;color:var(--t-gold2);font-size:24px;font-weight:950}
-#tournamentScreen .tournament-detail-head p{margin:5px 0;color:#a7b7cb;font-size:12px;line-height:1.6}
+#tournamentScreen .tournament-detail-head{display:flex;justify-content:space-between;gap:15px}
+#tournamentScreen .tournament-detail-head h2{margin:0 0 9px;color:var(--t-gold2);font-size:24px}
+#tournamentScreen .tournament-detail-head p,#tournamentScreen .tournament-note{color:#a7b7cb;font-size:12px;line-height:1.6}
 #tournamentScreen .tournament-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:20px 0}
-#tournamentScreen .tournament-stat{min-width:0;padding:14px;border:1px solid #2d435e;border-radius:13px;background:#091727}
-#tournamentScreen .tournament-stat small{display:block;color:#8fa2ba;font-size:9px;letter-spacing:.6px;text-transform:uppercase}
-#tournamentScreen .tournament-stat strong{display:block;margin-top:7px;color:var(--t-gold2);font-size:19px;overflow-wrap:anywhere}
+#tournamentScreen .tournament-stat{padding:14px;border:1px solid #2d435e;border-radius:13px;background:#091727}
+#tournamentScreen .tournament-stat small{display:block;color:#8fa2ba;font-size:9px}
+#tournamentScreen .tournament-stat strong{display:block;margin-top:7px;color:var(--t-gold2);font-size:19px}
 #tournamentScreen .tournament-register,#tournamentScreen .tournament-join-steps{margin-top:15px;padding:16px;border:1px solid #344b67;border-radius:14px;background:#091727}
-#tournamentScreen .tournament-register h3{margin:0 0 12px;color:#fff;font-size:16px}
+#tournamentScreen .tournament-register h3{color:#fff}
 #tournamentScreen .tournament-register label{display:block;margin:12px 0 6px;color:#dce6f2;font-size:11px;font-weight:800}
 #tournamentScreen .tournament-join-steps{color:#cbd7e6;font-size:12px;line-height:1.7}
-#tournamentScreen .tournament-join-steps ol{padding-left:20px}
 #tournamentScreen .tournament-join-steps b{color:var(--t-gold2)}
 #tournamentScreen .tournament-edit-title{margin-top:14px;padding:14px;border:1px solid rgba(232,189,99,.3);border-radius:13px;background:rgba(232,189,99,.06)}
 #tournamentScreen .tournament-edit-title label{display:block;margin-bottom:8px;color:var(--t-gold2);font-size:11px;font-weight:900}
 #tournamentScreen .tournament-edit-title>div{display:flex;gap:8px;flex-wrap:wrap}
 #tournamentScreen .tournament-edit-title input{flex:1}
-#tournamentScreen .tournament-edit-title button{padding:10px 13px;border:0;border-radius:9px;background:#d8b363;color:#17202b;font-weight:900;cursor:pointer}
-#tournamentScreen .tournament-edit-title small{display:block;margin-top:8px;color:#91a2b8;font-size:10px;line-height:1.5}
-#tournamentScreen .tournament-note{color:#94a7bf;font-size:11px;line-height:1.65}
 #tournamentScreen .tournament-tabs{display:flex;gap:5px;margin:22px 0 15px;border-bottom:1px solid #2d425c;overflow-x:auto}
 #tournamentScreen .tournament-tabs button{flex:0 0 auto;padding:12px 16px;border:0;border-bottom:2px solid transparent;background:transparent;color:#9aabc0;font-size:12px;font-weight:900;cursor:pointer}
 #tournamentScreen .tournament-tabs button.active{border-bottom-color:var(--t-gold);color:var(--t-gold2)}
 #tournamentScreen .tournament-tab-panel{min-height:100px;color:#dce6f2}
 #tournamentScreen .tournament-chat-messages{display:grid;gap:8px;max-height:260px;overflow:auto;padding:12px;border:1px solid #293e58;border-radius:13px;background:#081321}
-#tournamentScreen .tournament-chat-line{padding:9px;border-bottom:1px solid #20334a;color:#cbd7e6;font-size:12px;line-height:1.5}
+#tournamentScreen .tournament-chat-line{padding:9px;border-bottom:1px solid #20334a;color:#cbd7e6;font-size:12px}
 #tournamentScreen .tournament-chat-line strong{margin-right:8px;color:var(--t-gold2)}
 #tournamentScreen .tournament-chat-compose,#tournamentScreen .tournament-admin-row{display:flex;gap:9px;margin-top:12px}
 #tournamentScreen .tournament-chat-compose input,#tournamentScreen .tournament-admin-row input{flex:1}
-#tournamentScreen .tournament-chat-compose button{padding:0 20px;border:0;border-radius:10px;background:#d8b363;color:#17202b;font-weight:950;cursor:pointer}
+#tournamentScreen .tournament-chat-compose button{padding:0 20px;border:0;border-radius:10px;background:#d8b363;color:#17202b;font-weight:950}
 #tournamentScreen .tournament-players-list,#tournamentScreen .tournament-voice-pending,#tournamentScreen .tournament-admin-entries,#tournamentScreen .tournament-bracket{display:grid;gap:9px;margin-top:12px}
 #tournamentScreen .tournament-player-row,#tournamentScreen .tournament-admin-entry,#tournamentScreen .tournament-match{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px;border:1px solid #2d435e;border-radius:12px;background:#091727;color:#e0e8f2;font-size:12px}
 #tournamentScreen .tournament-match{display:block}
 #tournamentScreen .tournament-match button{margin:9px 7px 0 0}
-#tournamentScreen .tournament-match small{color:#96a8be}
 #tournamentScreen .tournament-admin-card{margin-top:20px}
-#tournamentScreen .tournament-admin-card h2{font-size:17px}
 #tournamentScreen .tournament-admin-entry{display:block;overflow-wrap:anywhere}
 #tournamentScreen .tournament-admin-entry img{display:block;max-width:180px;max-height:140px;object-fit:contain;margin:12px 0;border-radius:10px}
 #tournamentScreen .tournament-admin-entry button{margin:9px 7px 0 0}
 #tournamentScreen .tournament-message{position:sticky;bottom:10px;z-index:5;min-height:22px;padding:8px;border-radius:10px;background:rgba(8,15,27,.92);color:var(--t-gold2);text-align:center;font-size:12px;font-weight:850}
-#tournamentScreen button:focus-visible{outline:2px solid var(--t-gold);outline-offset:3px}
 @media(max-width:900px){#tournamentScreen .tournament-layout{grid-template-columns:1fr}#tournamentScreen .tournament-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:620px){
- #tournamentScreen.tournament-page{width:calc(100% - 16px);margin:8px auto 25px!important;padding:14px!important;border-radius:18px}
- #tournamentScreen .tournament-top{grid-template-columns:1fr 1fr;gap:12px;padding-bottom:18px}
- #tournamentScreen .tournament-top>div{grid-column:1/-1;grid-row:1}
- #tournamentScreen .tournament-top .back-button{grid-column:1;grid-row:2;justify-self:start}
- #tournamentScreen .tournament-top .tournament-refresh{grid-column:2;grid-row:2;justify-self:end}
- #tournamentScreen .tournament-top h1{font-size:29px}
- #tournamentScreen .tournament-subtitle{font-size:11px}
- #tournamentScreen .tournament-create-card,#tournamentScreen .tournament-list-card,#tournamentScreen .tournament-detail-card,#tournamentScreen .tournament-admin-card{padding:16px;border-radius:15px}
- #tournamentScreen .tournament-form-grid{grid-template-columns:1fr;gap:12px}
- #tournamentScreen .tournament-wide{grid-column:auto}
- #tournamentScreen .tournament-prizes{grid-template-columns:1fr}
- #tournamentScreen .tournament-prizes>strong,#tournamentScreen .tournament-prizes>small{grid-column:auto}
- #tournamentScreen .tournament-section-title h2{font-size:17px}
- #tournamentScreen .tournament-detail-head{display:block}
- #tournamentScreen .tournament-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
- #tournamentScreen .tournament-admin-row,#tournamentScreen .tournament-chat-compose{flex-direction:column}
- #tournamentScreen .tournament-chat-compose button{min-height:42px}
- #tournamentScreen .tournament-item-head{gap:7px}
-}
+@media(max-width:620px){#tournamentScreen.tournament-page{width:calc(100% - 16px);margin:8px auto 25px!important;padding:14px!important;border-radius:18px}#tournamentScreen .tournament-top{grid-template-columns:1fr 1fr;gap:12px;padding-bottom:18px}#tournamentScreen .tournament-top>div{grid-column:1/-1;grid-row:1}#tournamentScreen .tournament-top .back-button{grid-column:1;grid-row:2}#tournamentScreen .tournament-top .tournament-refresh{grid-column:2;grid-row:2}#tournamentScreen .tournament-top h1{font-size:29px}#tournamentScreen .tournament-create-card,#tournamentScreen .tournament-list-card,#tournamentScreen .tournament-detail-card,#tournamentScreen .tournament-admin-card{padding:16px}#tournamentScreen .tournament-form-grid{grid-template-columns:1fr}#tournamentScreen .tournament-wide{grid-column:auto}#tournamentScreen .tournament-prizes{grid-template-columns:1fr}#tournamentScreen .tournament-prizes>strong,#tournamentScreen .tournament-prizes>small{grid-column:auto}#tournamentScreen .tournament-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#tournamentScreen .tournament-admin-row,#tournamentScreen .tournament-chat-compose{flex-direction:column}}
 </style>
-
 </head>
 
 <body>
@@ -583,14 +1672,9 @@
 <section id="tournamentScreen" class="screen tournament-page">
   <header class="tournament-top">
     <button class="back-button" id="tournamentBack" type="button">← Retounen</button>
-    <div>
-      <small>MR_JERY ARENA</small>
-      <h1>🏆 Tournoi Center</h1>
-      <p class="tournament-subtitle">Kreye konpetisyon, enskri, suiv match yo epi goumen pou premye plas la.</p>
-    </div>
+    <div><small>MR_JERY ARENA</small><h1>🏆 Tournoi Center</h1><p class="tournament-subtitle">Kreye konpetisyon, enskri, suiv match yo epi goumen pou premye plas la.</p></div>
     <button class="tournament-refresh" id="tournamentRefresh" type="button">⟳ Rafrechi lis la</button>
   </header>
-
   <div class="tournament-layout">
     <section class="tournament-create-card">
       <div class="tournament-section-title"><span>01</span><div><h2>Kreye yon tournoi</h2><p>Òganize pwòp konpetisyon Gomoku ou. Ranpli detay yo anba a.</p></div></div>
@@ -599,51 +1683,27 @@
           <input id="tournamentTitle" maxlength="100" required placeholder="Egzanp: MR_Jery Championship">
           <small>Chwazi yon non klè. Ou ka modifye non an anvan konpetisyon an kòmanse.</small>
         </label>
-        <label>Frè patisipasyon chak jwè
-          <input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5">
-          <small>Montan chak jwè ap peye pou patisipe.</small>
-        </label>
-        <label>Monnen
-          <select id="tournamentCurrency"><option value="USD">USD ($)</option><option value="HTG">HTG (Gourdes)</option></select>
-        </label>
-        <label>Metòd peman
-          <select id="tournamentMethod"><option value="tranzak">Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select>
-        </label>
-        <label>Komisyon òganizatè (%)
-          <input id="tournamentCommission" type="number" min="0" max="20" step="0.01" value="10">
-          <small>Pousantaj sistèm nan dedui sou lajan konpetisyon an.</small>
-        </label>
-        <label>Gwosè tablo a
-          <select id="tournamentBoard"><option value="15">15 × 15</option><option value="19">19 × 19</option><option value="20">20 × 20</option></select>
-        </label>
-        <label>Tan pou chak match
-          <select id="tournamentDuration"><option value="60">1 minit</option><option value="120">2 minit</option><option value="180">3 minit</option><option value="300">5 minit</option><option value="600" selected>10 minit</option><option value="900">15 minit</option><option value="1200">20 minit</option><option value="1800">30 minit</option></select>
-        </label>
+        <label>Frè patisipasyon chak jwè<input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><small>Montan chak jwè ap peye pou patisipe.</small></label>
+        <label>Monnen<select id="tournamentCurrency"><option value="USD">USD ($)</option><option value="HTG">HTG (Gourdes)</option></select></label>
+        <label>Metòd peman<select id="tournamentMethod"><option value="tranzak">Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select></label>
+        <label>Komisyon òganizatè (%)<input id="tournamentCommission" type="number" min="0" max="20" step="0.01" value="10"><small>Pousantaj sistèm nan dedui sou lajan konpetisyon an.</small></label>
+        <label>Gwosè tablo a<select id="tournamentBoard"><option value="15">15 × 15</option><option value="19">19 × 19</option><option value="20">20 × 20</option></select></label>
+        <label>Tan pou chak match<select id="tournamentDuration"><option value="60">1 minit</option><option value="120">2 minit</option><option value="180">3 minit</option><option value="300">5 minit</option><option value="600" selected>10 minit</option><option value="900">15 minit</option><option value="1200">20 minit</option><option value="1800">30 minit</option></select></label>
         <div class="tournament-wide tournament-prizes">
           <strong>🏅 Pataj pri gayan yo</strong>
-          <label>1ye plas (%)
-            <input id="tournamentPrize1" type="number" min="0" max="100" value="70">
-          </label>
-          <label>2yèm plas (%)
-            <input id="tournamentPrize2" type="number" min="0" max="100" value="20">
-          </label>
-          <label>3yèm plas (%)
-            <input id="tournamentPrize3" type="number" min="0" max="100" value="10">
-          </label>
+          <label>1ye plas (%)<input id="tournamentPrize1" type="number" min="0" max="100" value="70"></label>
+          <label>2yèm plas (%)<input id="tournamentPrize2" type="number" min="0" max="100" value="20"></label>
+          <label>3yèm plas (%)<input id="tournamentPrize3" type="number" min="0" max="100" value="10"></label>
           <small>Twa pousantaj yo dwe bay 100% ansanm. Komisyon an rete nan limit administratè sèvè a fikse.</small>
         </div>
       </div>
-      <button class="tournament-primary" id="tournamentCreateBtn" type="button">＋  Kreye konpetisyon an</button>
+      <button class="tournament-primary" id="tournamentCreateBtn" type="button">＋ Kreye konpetisyon an</button>
     </section>
-
     <section class="tournament-list-card">
       <div class="tournament-section-title"><span>02</span><div><h2>Tournois disponib</h2><p>Chèche konpetisyon ki ouvè yo, gade kondisyon yo epi antre ladan yo.</p></div></div>
-      <div id="tournamentList" class="tournament-list">
-        <div class="tournament-empty"><strong>Lis la poko chaje.</strong><br>Peze “Rafrechi lis la” pou jwenn konpetisyon ki disponib yo.</div>
-      </div>
+      <div id="tournamentList" class="tournament-list"><div class="tournament-empty"><strong>Lis la poko chaje.</strong><br>Peze “Rafrechi lis la” pou jwenn konpetisyon ki disponib yo.</div></div>
     </section>
   </div>
-
   <section id="tournamentDetail" class="tournament-detail-card" style="display:none">
     <div id="tournamentDetailContent"></div>
     <div class="tournament-tabs" role="tablist">
@@ -651,21 +1711,10 @@
       <button type="button" data-t-tab="voice">🎙️ Vwa</button>
       <button type="button" data-t-tab="players">👥 Patisipan</button>
     </div>
-    <div id="tTabChat" class="tournament-tab-panel">
-      <div id="tournamentChatMessages" class="tournament-chat-messages"></div>
-      <div class="tournament-chat-compose"><input id="tournamentChatInput" maxlength="300" placeholder="Ekri yon mesaj..."><button id="tournamentChatSend" type="button">Voye mesaj</button></div>
-    </div>
-    <div id="tTabVoice" class="tournament-tab-panel" style="display:none">
-      <p class="tournament-note">Espektatè yo dwe mande pèmisyon. Se òganizatè tournoi a sèlman ki ka aksepte, refize oswa retire dwa pale.</p>
-      <button type="button" class="tournament-secondary" id="tournamentMicRequest">Mande pèmisyon pou pale</button>
-      <div id="tournamentVoicePending" class="tournament-voice-pending"></div>
-      <div id="tournamentVoiceStatus" class="tournament-note" aria-live="polite"></div>
-    </div>
-    <div id="tTabPlayers" class="tournament-tab-panel" style="display:none">
-      <div id="tournamentPlayersList" class="tournament-players-list"></div>
-    </div>
+    <div id="tTabChat" class="tournament-tab-panel"><div id="tournamentChatMessages" class="tournament-chat-messages"></div><div class="tournament-chat-compose"><input id="tournamentChatInput" maxlength="300" placeholder="Ekri yon mesaj..."><button id="tournamentChatSend" type="button">Voye mesaj</button></div></div>
+    <div id="tTabVoice" class="tournament-tab-panel" style="display:none"><p class="tournament-note">Espektatè yo dwe mande pèmisyon. Se òganizatè tournoi a sèlman ki ka aksepte, refize oswa retire dwa pale.</p><button type="button" class="tournament-secondary" id="tournamentMicRequest">Mande pèmisyon pou pale</button><div id="tournamentVoicePending" class="tournament-voice-pending"></div><div id="tournamentVoiceStatus" class="tournament-note" aria-live="polite"></div></div>
+    <div id="tTabPlayers" class="tournament-tab-panel" style="display:none"><div id="tournamentPlayersList" class="tournament-players-list"></div></div>
   </section>
-
   <section class="tournament-admin-card">
     <h2>🔐 Zòn administratè</h2>
     <p>Espas sa a rezève pou verifikasyon peman MonCash/NatCash. Antre kle prive administratè a pou revize demann yo. Tranzak konfime atravè webhook Wallet ki siyen; pa gen bouton ki ka fo konfimasyon.</p>
