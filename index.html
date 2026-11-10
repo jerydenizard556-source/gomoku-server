@@ -1683,7 +1683,7 @@ td, th { overflow-wrap: anywhere; }
             <select id="walletExchangeTo"><option value="HTG">HTG</option><option value="USD">USD</option></select>
         </div>
         <div style="margin-top:10px"><input id="walletExchangeAmount" type="number" min="0.01" step="0.01" placeholder="Montan pou chanje"></div>
-        <div class="calc-box" id="walletExchangeQuote">To Tranzak la, maj MR_Jery 2% ak frè yo ap parèt isit la anvan ou konfime.</div>
+        <div class="calc-box" id="walletExchangeQuote">Rezilta konvèsyon an ak kantite lajan w ap resevwa a ap parèt isit la anvan konfimasyon.</div>
         <button id="walletExchangeQuoteBtn" type="button">Jwenn to ak kalkil</button>
         <button id="walletExchangeConfirmBtn" type="button" disabled>Konfime konvèsyon</button>
     </div>
@@ -6527,13 +6527,22 @@ async function startWalletDeposit(){
 }
 async function getWalletQuote(){
   const from=document.getElementById("walletExchangeFrom").value,to=document.getElementById("walletExchangeTo").value,amount=Number(document.getElementById("walletExchangeAmount").value);
-  if(from===to){walletNotice("Chwazi de lajan diferan.");return;}
-  if(!Number.isFinite(amount)||amount<=0){walletNotice("Antre yon montan valab pou chanje.");return;}
+  const quoteBox=document.getElementById("walletExchangeQuote");
+  const confirmBtn=document.getElementById("walletExchangeConfirmBtn");
+  walletQuoteId=null;confirmBtn.disabled=true;
+  if(from===to){quoteBox.textContent="Chwazi de lajan diferan.";return;}
+  if(!Number.isFinite(amount)||amount<=0){quoteBox.textContent="Antre yon montan valab pou wè konvèsyon an.";return;}
   setWalletBusy(true);walletNotice("⏳ Nap mande to aktyèl la...");
-  try{const q=await walletRequest(`/fx/quote?from_currency=${encodeURIComponent(from)}&to_currency=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`);
-    walletQuoteId=q.quote_id;document.getElementById("walletExchangeQuote").textContent=`To Tranzak: ${q.tranzak_rate} | To MR_Jery: ${q.customer_rate} | Maj MR_Jery: ${q.mr_jery_margin_percent}% | Ou resevwa: ${money(q.to_amount,to)}. ${q.fees_disclosed||""} Konfimasyon valab pandan 5 minit.`;
-    document.getElementById("walletExchangeConfirmBtn").disabled=false;walletNotice("Verifye kalkil la anvan ou konfime.",true);
-  }catch(e){walletQuoteId=null;document.getElementById("walletExchangeConfirmBtn").disabled=true;walletNotice(e.message||"Nou pa kapab jwenn to echanj la.");}
+  try{
+    const q=await walletRequest(`/fx/quote?from_currency=${encodeURIComponent(from)}&to_currency=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`);
+    if(!q.quote_id||!Number.isFinite(Number(q.to_amount)))throw new Error("Sèvè a pa retounen yon kalkil konplè.");
+    walletQuoteId=q.quote_id;
+    const rate=Number(q.customer_rate);
+    const rateText=Number.isFinite(rate)&&rate>0?`To kliyan: 1 ${from} = ${money(rate,to)}. `: "";
+    const fees=String(q.fees_disclosed||"").trim();
+    quoteBox.textContent=`${money(amount,from)} = ${money(q.to_amount,to)}. ${rateText}${fees?fees+" ":""}Kalkil la baze sou to Tranzak la. Konfimasyon valab pandan 5 minit.`;
+    confirmBtn.disabled=false;walletNotice("Verifye montan final la anvan ou konfime.",true);
+  }catch(e){walletQuoteId=null;confirmBtn.disabled=true;quoteBox.textContent="Nou pa kapab kalkile konvèsyon an kounye a.";walletNotice(e.message||"Nou pa kapab jwenn to echanj la.");}
   finally{setWalletBusy(false);}
 }
 async function confirmWalletExchange(){
@@ -6558,6 +6567,19 @@ document.getElementById("walletBack")?.addEventListener("click",()=>showAccountM
 document.getElementById("refreshWalletBtn")?.addEventListener("click",renderWallet);
 document.getElementById("walletDepositSubmit")?.addEventListener("click",startWalletDeposit);
 document.getElementById("walletExchangeQuoteBtn")?.addEventListener("click",getWalletQuote);
+let walletQuoteRefreshTimer=null;
+function scheduleWalletQuote(){
+  clearTimeout(walletQuoteRefreshTimer);
+  walletQuoteId=null;
+  const confirmBtn=document.getElementById("walletExchangeConfirmBtn");
+  if(confirmBtn)confirmBtn.disabled=true;
+  const box=document.getElementById("walletExchangeQuote");
+  if(box)box.textContent="Nap mete ajou kalkil konvèsyon an...";
+  walletQuoteRefreshTimer=setTimeout(getWalletQuote,450);
+}
+document.getElementById("walletExchangeAmount")?.addEventListener("input",scheduleWalletQuote);
+document.getElementById("walletExchangeFrom")?.addEventListener("change",scheduleWalletQuote);
+document.getElementById("walletExchangeTo")?.addEventListener("change",scheduleWalletQuote);
 document.getElementById("walletExchangeConfirmBtn")?.addEventListener("click",confirmWalletExchange);
 document.getElementById("walletPremiumSubmit")?.addEventListener("click",startPremiumCheckout);
 document.querySelectorAll("[data-premium-plan]").forEach(btn=>btn.addEventListener("click",()=>{
