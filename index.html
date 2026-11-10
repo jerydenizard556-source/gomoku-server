@@ -1439,8 +1439,10 @@ td, th { overflow-wrap: anywhere; }
 #tournamentScreen .create-pro-fields{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;padding:26px 0}
 #tournamentScreen .create-pro-field{display:block;min-width:0;text-align:left;color:#dce8ff;font-size:11px;font-weight:900;letter-spacing:1.4px}
 #tournamentScreen .create-pro-field>span,#tournamentScreen .create-pro-field>label{display:block;margin-bottom:9px;color:#b9cbe8}
-#tournamentScreen .create-pro-field input,#tournamentScreen .create-pro-money select{width:100%;height:54px;border:1px solid rgba(115,163,244,.42);border-radius:11px;background:#06152f;color:#fff;padding:0 15px;font-size:16px;font-weight:700;outline:none}
-#tournamentScreen .create-pro-field input:focus,#tournamentScreen .create-pro-money select:focus{border-color:#ffd15b;box-shadow:0 0 0 3px rgba(255,209,91,.12)}
+#tournamentScreen .create-pro-field input,#tournamentScreen .create-pro-field select{width:100%;height:54px;border:1px solid rgba(115,163,244,.42);border-radius:11px;background:#06152f;color:#fff;padding:0 15px;font-size:16px;font-weight:700;outline:none}
+#tournamentScreen .create-pro-field input:focus,#tournamentScreen .create-pro-field select:focus{border-color:#ffd15b;box-shadow:0 0 0 3px rgba(255,209,91,.12)}
+#tournamentScreen .tournament-terms-accept{display:flex;align-items:flex-start;gap:10px;margin:16px 0;padding:12px;border:1px solid rgba(255,209,91,.28);border-radius:10px;color:#f2dfae;font-size:13px;line-height:1.5;text-align:left}
+#tournamentScreen .tournament-terms-accept input{width:18px;height:18px;flex:0 0 18px;margin:1px 0 0;accent-color:#d6a83e}
 #tournamentScreen .create-pro-field input::placeholder{color:#60799f;font-weight:500}
 #tournamentScreen .create-pro-field small{display:block;margin-top:8px;color:#8198bd;font-size:11px;font-weight:500;letter-spacing:0}
 #tournamentScreen .create-pro-money{display:grid;grid-template-columns:minmax(0,1fr) 118px;gap:8px}
@@ -1956,18 +1958,21 @@ td, th { overflow-wrap: anywhere; }
       <div class="create-pro-fields">
         <label class="create-pro-field create-pro-field-wide"><span>NON TOURNOI A</span><input id="tournamentTitle" maxlength="100" required placeholder="Egzanp: MR_Jery Championship"><small>Chwazi yon non ki fasil pou jwè yo rekonèt.</small></label>
         <div class="create-pro-field"><label for="tournamentFee">FRÈ PATISIPASYON</label><div class="create-pro-money"><input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><select id="tournamentCurrency" aria-label="Monnen"><option value="USD">USD $</option><option value="HTG">HTG G</option></select></div><small>Pri chak jwè ap peye pou antre.</small></div>
+        <div class="create-pro-field"><label for="tournamentMethod">MWAYEN PEMAN POU ENSKRIPSYON</label><select id="tournamentMethod"><option value="tranzak">Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select><small>Chwazi mwayen peman ki disponib pou tounwa sa a.</small></div>
+        <div class="create-pro-field"><label for="tournamentCommission">AVANTAJ ÒGANIZATÈ A (%)</label><input id="tournamentCommission" type="number" min="2" max="15" step="1" value="10"><small>Ou ka chwazi ant 2% ak 15%. Rès la sèvi pou prim gayan yo.</small></div>
+        <div class="create-pro-field"><label for="tournamentWinnerCount">KONBYEN GAYAN?</label><select id="tournamentWinnerCount"><option value="1">1 gayan</option><option value="2">2 gayan</option><option value="3" selected>3 gayan</option></select><small>Chwazi konbyen plas k ap resevwa prim.</small></div>
+        <div class="create-pro-field"><label for="tournamentPrize1">PREMYE PLAS (%)</label><input id="tournamentPrize1" type="number" min="60" max="100" step="1" value="70"><small>Premye plas dwe resevwa omwen 60% nan fon prim lan.</small></div>
+        <div class="create-pro-field" id="tournamentPrize2Wrap"><label for="tournamentPrize2">DEZYÈM PLAS (%)</label><input id="tournamentPrize2" type="number" min="0" max="40" step="1" value="20"></div>
+        <div class="create-pro-field" id="tournamentPrize3Wrap"><label for="tournamentPrize3">TWAZYÈM PLAS (%)</label><input id="tournamentPrize3" type="number" min="0" max="40" step="1" value="10"></div>
       </div>
-      <div class="create-pro-included"><span>✓</span><div><strong>Rès paramèt yo deja prepare</strong><small>Tablo, tan match ak pataj pri yo ap itilize reglaj estanda yo. Ou ka ajiste non tournoi a pita.</small></div></div>
+      <div class="create-pro-included"><span>✓</span><div><strong>Kondisyon finansye yo ap rete fiks</strong><small>Avantaj òganizatè a limite ant 2% ak 15%. Pataj prim yo dwe totalize 100% nan fon prim lan epi yo pa ka modifye apre premye enskripsyon an.</small></div></div>
       <div class="create-pro-footer"><div><small>ETAP 1 SOU 2</small><strong>Prèske pare pou lanse</strong></div><button class="tournament-primary create-pro-submit" id="tournamentCreateBtn" type="button">Kontinye <span>→</span></button></div>
     </div>
     <div class="create-pro-security">🔒 Konfigirasyon an ap rete asosye ak kont òganizatè a.</div>
   </div>
   <div class="tournament-hidden-defaults" hidden aria-hidden="true">
-    <select id="tournamentMethod"><option value="tranzak" selected>Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select>
-    <input id="tournamentCommission" type="hidden" value="10">
     <select id="tournamentBoard"><option value="15" selected>15</option><option value="19">19</option><option value="20">20</option></select>
     <select id="tournamentDuration"><option value="600" selected>600</option></select>
-    <input id="tournamentPrize1" type="hidden" value="70"><input id="tournamentPrize2" type="hidden" value="20"><input id="tournamentPrize3" type="hidden" value="10">
   </div>
 </section>
   <section class="tournament-stage" data-t-stage="4">
@@ -6758,16 +6763,47 @@ function setTournamentStage(stage){
   if(screen)screen.scrollIntoView({behavior:"smooth",block:"start"});
 }
 function tournamentValue(id){return document.getElementById(id)?.value??"";}
+function tournamentWinnerCount(){return Math.max(1,Math.min(3,Number(tournamentValue("tournamentWinnerCount"))||1));}
+function syncTournamentPrizeFields(){
+ const count=tournamentWinnerCount();
+ const two=document.getElementById("tournamentPrize2Wrap"),three=document.getElementById("tournamentPrize3Wrap");
+ if(two)two.style.display=count>=2?"block":"none";
+ if(three)three.style.display=count>=3?"block":"none";
+ if(count===1){document.getElementById("tournamentPrize1").value="100";}
+ else if(count===2&&Number(document.getElementById("tournamentPrize1").value)>=100){document.getElementById("tournamentPrize1").value="70";document.getElementById("tournamentPrize2").value="30";}
+}
+function getTournamentPrizeShares(){
+ const count=tournamentWinnerCount(),shares={};
+ for(let place=1;place<=count;place++)shares[String(place)]=Number(tournamentValue("tournamentPrize"+place));
+ return shares;
+}
+function validateTournamentPayoutSettings(){
+ const commission=Number(tournamentValue("tournamentCommission"));
+ const shares=getTournamentPrizeShares(),values=Object.values(shares);
+ const total=values.reduce((sum,value)=>sum+value,0);
+ if(!Number.isFinite(commission)||commission<2||commission>15){tournamentNotice("Avantaj òganizatè a dwe ant 2% ak 15%.",false);return false;}
+ if(values.some(v=>!Number.isFinite(v)||v<0)||Number(shares["1"])<60||total!==100){
+  tournamentNotice("Premye plas dwe gen omwen 60%, epi pousantaj gayan yo dwe totalize egzakteman 100%.",false);return false;
+ }
+ return true;
+}
 function buildTournamentConfirmation(){
+ const shares=getTournamentPrizeShares();
+ const payout=Object.entries(shares).map(([place,pct])=>place+"ye: "+pct+"%").join(" · ");
  const rows=[
   ["Non tournoi",tournamentValue("tournamentTitle")],
   ["Frè patisipasyon",tournamentValue("tournamentFee")+" "+tournamentValue("tournamentCurrency")],
-  ["Paramèt jwèt","15 × 15 · 10 minit"],
-  ["Pataj pri","70% · 20% · 10%"]
+  ["Mwayen peman",tournamentMethodLabel(tournamentValue("tournamentMethod"))],
+  ["Avantaj òganizatè",tournamentValue("tournamentCommission")+"% (2–15%)"],
+  ["Kantite gayan",tournamentWinnerCount()],
+  ["Distribisyon fon prim",payout],
+  ["Paramèt jwèt","15 × 15 · 10 minit"]
  ];
  const root=document.getElementById("tournamentConfirmSummary");
  if(root)root.innerHTML=rows.map(([k,v])=>'<div><small>'+escTournament(k)+'</small><strong>'+escTournament(v)+'</strong></div>').join("");
 }
+document.getElementById("tournamentWinnerCount")?.addEventListener("change",syncTournamentPrizeFields);
+syncTournamentPrizeFields();
 document.querySelectorAll("#tournamentScreen [data-t-go]").forEach(b=>b.addEventListener("click",()=>setTournamentStage(b.dataset.tGo)));
 document.querySelectorAll("#tournamentScreen [data-t-step]").forEach(b=>b.addEventListener("click",()=>{
  const n=Number(b.dataset.tStep);
@@ -6865,7 +6901,7 @@ function renderTournamentDetail(t){
       <div class="tournament-stat"><small>Prize pool</small><strong>${pool.toFixed(2)}</strong></div>
     </div>
     <p class="tournament-note">Total peman verifye: ${gross.toFixed(2)} ${escTournament(t.currency||"USD")} · Komisyon: ${commission.toFixed(2)} · Pòtay pri: ${prizeText}</p>
-    ${t.status==="registration"&&!isOrganizer?`<div class="tournament-register"><h3>Antre nan tournoi sa a</h3><div class="tournament-join-steps"><strong>Men kijan pou w antre:</strong><ol><li>Verifye frè antre a: <b>${escTournament(t.entry_fee)} ${escTournament(t.currency||"USD")}</b>.</li><li>Peye ak metòd ki make la: <b>${escTournament(t.payment_method||"")}</b>.</li><li>Ekri referans tranzaksyon an; pou MonCash/NatCash, mete foto prèv peman an tou.</li><li>Voye demann lan epi tann verifikasyon an anvan plas ou konfime.</li></ol></div><label for="tournamentPaymentReference">Nimewo tranzaksyon / referans peman</label><input id="tournamentPaymentReference" maxlength="160" required placeholder="Antre referans tranzaksyon an"><label for="tournamentProofFile">Foto prèv peman (obligatwa pou MonCash/NatCash, max 650 KB)</label><input id="tournamentProofFile" type="file" accept="image/png,image/jpeg"><button type="button" class="tournament-primary" data-t-action="register" data-id="${escTournament(t.tournament_id)}">Konfime enfòmasyon mwen epi voye demann lan</button><small class="tournament-note">Demann ou ap rete an atant jiskaske sistèm peman an oswa administratè a verifye li. Pa janm pataje modpas oswa PIN peman ou.</small></div>`:""}
+    ${t.status==="registration"&&!isOrganizer?`<div class="tournament-register"><h3>Antre nan tournoi sa a</h3><div class="tournament-join-steps"><strong>Kondisyon tounwa a — verifye anvan ou peye:</strong><ol><li>Frè enskripsyon: <b>${escTournament(t.entry_fee)} ${escTournament(t.currency||"USD")}</b>.</li><li>Mwayen peman: <b>${escTournament(t.payment_method||"")}</b>.</li><li>Avantaj òganizatè a: <b>${escTournament(t.commission_percent)}%</b>.</li><li>Prim gayan yo: <b>${escTournament(prizeText)}</b>.</li><li>Distribisyon sa a fikse davans; li pa ka chanje apre enskripsyon kòmanse.</li></ol></div><label for="tournamentPaymentReference">Nimewo tranzaksyon / referans peman</label><input id="tournamentPaymentReference" maxlength="160" required placeholder="Antre referans tranzaksyon an"><label for="tournamentProofFile">Foto prèv peman (obligatwa pou MonCash/NatCash, max 650 KB)</label><input id="tournamentProofFile" type="file" accept="image/png,image/jpeg"><label class="tournament-terms-accept"><input id="tournamentTermsAccepted" type="checkbox"> Mwen li epi mwen aksepte frè enskripsyon an, avantaj òganizatè a, distribisyon prim yo ak tout règ tounwa sa a.</label><button type="button" class="tournament-primary" data-t-action="register" data-id="${escTournament(t.tournament_id)}">Mwen aksepte kondisyon yo epi voye enskripsyon an</button><small class="tournament-note">Enskripsyon an rete an atant jiskaske peman an verifye. Pa janm pataje modpas oswa PIN peman ou.</small></div>`:""}
     ${isOrganizer&&t.status==="registration"?`<button class="tournament-primary" data-t-action="start" data-id="${escTournament(t.tournament_id)}">Lanse tournoi a (minimòm 2 jwè verifye)</button>`:""}
     ${canDelete?`<div class="tournament-delete-zone"><p>Ou ka efase tournoi sa a paske poko gen okenn jwè ki enskri.</p><button type="button" class="tournament-delete-button" data-t-action="delete" data-id="${escTournament(t.tournament_id)}">🗑️ Efacer ce tournoi</button></div>`:""}
     <h3 style="margin-top:22px">Bracket / Match yo</h3>
@@ -7036,9 +7072,11 @@ function sendTournamentRegister(tid){
   const ref=document.getElementById("tournamentPaymentReference")?.value?.trim()||"";
   const file=document.getElementById("tournamentProofFile")?.files?.[0];
   const method=document.getElementById("tournamentDetailContent")?.dataset.paymentMethod||"";
+  const accepted=!!document.getElementById("tournamentTermsAccepted")?.checked;
+  if(!accepted){tournamentNotice("Ou dwe li epi aksepte tout kondisyon tounwa a anvan ou kontinye.",false);return;}
   if(!ref){tournamentNotice("Antre referans tranzaksyon an anvan ou voye demann lan.",false);document.getElementById("tournamentPaymentReference")?.focus();return;}
   if((method==="moncash"||method==="natcash")&&!file){tournamentNotice("Mete foto prèv peman an pou MonCash/NatCash.",false);return;}
-  const sendProof=(proof)=>tournamentSend("tournament_register",{tournament_id:tid,payment_reference:ref,proof_reference:proof});
+  const sendProof=(proof)=>tournamentSend("tournament_register",{tournament_id:tid,payment_reference:ref,proof_reference:proof,terms_accepted:true});
   if(file){
     if(file.size>650*1024){tournamentNotice("Imaj prèv la depase 650 KB.",false);return;}
     const reader=new FileReader();reader.onload=()=>sendProof(String(reader.result||""));reader.onerror=()=>tournamentNotice("Pa kapab li imaj prèv la.",false);reader.readAsDataURL(file);
@@ -7047,8 +7085,8 @@ function sendTournamentRegister(tid){
 document.getElementById("tournamentCreateBtn")?.addEventListener("click",()=>{
   const titleInput=document.getElementById("tournamentTitle"),title=titleInput?.value?.trim()||"";
   if(!title){tournamentNotice("Ekri non tournoi a anvan ou kreye li.",false);titleInput?.focus();return;}
-  const shares={"1":Number(document.getElementById("tournamentPrize1").value),"2":Number(document.getElementById("tournamentPrize2").value),"3":Number(document.getElementById("tournamentPrize3").value)};
-  if(shares["1"]+shares["2"]+shares["3"]!==100){tournamentNotice("Distribisyon pri yo dwe egal 100%.",false);return;}
+  if(!validateTournamentPayoutSettings())return;
+  const shares=getTournamentPrizeShares();
   if(!tournamentCreateConfirmed){buildTournamentConfirmation();setTournamentStage(4);return;}
   tournamentCreateConfirmed=false;
   if(!tournamentSend("tournament_create",{title,entry_fee:document.getElementById("tournamentFee").value,currency:document.getElementById("tournamentCurrency").value,payment_method:document.getElementById("tournamentMethod").value,commission_percent:document.getElementById("tournamentCommission").value,board_size:Number(document.getElementById("tournamentBoard").value),duration_seconds:Number(document.getElementById("tournamentDuration").value),prize_shares:shares})){return;}
