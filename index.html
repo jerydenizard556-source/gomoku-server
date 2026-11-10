@@ -5265,7 +5265,7 @@ function connectServer(callback) {
                     onlineLastMove =
                         data.last_move ||
                         null;
-                    if(activeTournamentMatchRoom&&data.room===activeTournamentMatchRoom)renderTournamentMatchChat(data.chat||[]);
+                    if(activeTournamentMatchRoom)renderTournamentMatchChat(data.chat||[]);
                     const incomingSize = Array.isArray(data.board) && data.board.length ? data.board.length : BOARD_SIZE;
                     if (incomingSize >= 13 && incomingSize <= 20 && incomingSize !== BOARD_SIZE) {
                         BOARD_SIZE = incomingSize;
@@ -6354,6 +6354,10 @@ document
 
 function closeOnlineConnection() {
 
+    closeTournamentVoice();
+    activeTournamentMatchRoom=null;
+    tournamentVoiceApproved=false;
+    showTournamentMatchComms(false);
     hideGameInvite();
     onlinePlayersList = [];
 
@@ -7003,9 +7007,10 @@ function loadTournamentAdminEntries(){
   tournamentSend("tournament_admin_entries",{tournament_id:activeTournamentId,admin_secret:secret});
 }
 function addTournamentVoicePending(data){
-  tournamentPendingVoice.push(data);
-  const root=document.getElementById("tournamentVoicePending");if(!root)return;
-  root.innerHTML=tournamentPendingVoice.map((p,i)=>`<div class="tournament-player-row"><strong>${escTournament(p.username)} mande mikwo</strong><span><button class="tournament-secondary" data-t-action="voice" data-index="${i}" data-approve="1">Aksepte</button><button class="tournament-secondary" data-t-action="voice" data-index="${i}" data-approve="0">Refize</button></span></div>`).join("");
+  if(data&&data.player_id&&!tournamentPendingVoice.some(p=>String(p.player_id)===String(data.player_id)))tournamentPendingVoice.push(data);
+  const root=document.getElementById("tournamentVoicePending");
+  if(root)root.innerHTML=tournamentPendingVoice.map((p,i)=>`<div class="tournament-player-row"><strong>${escTournament(p.username)} mande mikwo</strong><span><button class="tournament-secondary" data-t-action="voice" data-index="${i}" data-approve="1">Aksepte</button><button class="tournament-secondary" data-t-action="voice" data-index="${i}" data-approve="0">Refize</button></span></div>`).join("");
+  renderTournamentMatchVoicePending();
 }
 function sendTournamentRegister(tid){
   const ref=document.getElementById("tournamentPaymentReference")?.value?.trim()||"";
