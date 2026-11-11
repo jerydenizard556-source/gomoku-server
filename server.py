@@ -749,11 +749,9 @@ async def handler(ws):
 def health_response(connection, request):
     # Render health probes and private Wallet-to-game payment callbacks.
     path = urlsplit(request.path).path
-    if request.headers.get('Upgrade', '').lower() != 'websocket' and request.method in ('GET', 'HEAD'):
+    if request.headers.get('Upgrade', '').lower() != 'websocket':
         if path in ('/', '/health', '/healthz'):
             body = b'{"ok":true,"service":"MR_Jery_Morpion_Game_Server","websocket":true}'
-            if request.method == 'HEAD':
-                body = b''
             return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
         if path in ('/internal/tournament/entry', '/internal/tournament/payment-verified', '/internal/tournament/creation-paid'):
             supplied = request.headers.get('X-Gomoku-Secret', '')
