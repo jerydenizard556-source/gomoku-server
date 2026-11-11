@@ -1957,7 +1957,7 @@ td, th { overflow-wrap: anywhere; }
       <div class="create-pro-card-head"><span class="create-pro-icon">🏆</span><div><strong>Enfòmasyon konpetisyon an</strong><small>Prepare tournoi ou an kèk segonn</small></div><span class="create-pro-step">01 / 02</span></div>
       <div class="create-pro-fields">
         <label class="create-pro-field create-pro-field-wide"><span>NON TOURNOI A</span><input id="tournamentTitle" maxlength="100" required placeholder="Egzanp: MR_Jery Championship"><small>Chwazi yon non ki fasil pou jwè yo rekonèt.</small></label>
-        <div class="create-pro-field"><label for="tournamentFee">FRÈ PATISIPASYON</label><div class="create-pro-money"><input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><select id="tournamentCurrency" aria-label="Monnen"><option value="USD">USD $</option><option value="HTG">HTG G</option></select></div><small>Pri chak jwè ap peye pou antre.</small></div>
+        <div class="create-pro-field"><label for="tournamentFee">FRÈ PATISIPASYON</label><div class="create-pro-money"><input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><select id="tournamentCurrency" aria-label="Monnen"><option value="USD">USD $</option><option value="HTG">HTG G</option></select></div><small>Pri chak jwè ap peye pou antre.</small><small id="tournamentEntryFxEquivalent" class="create-pro-fx">Ekivalan lòt lajan an ap parèt isit la.</small></div>
         <div class="create-pro-field"><label for="tournamentCapacity">KANTITE JWÈ MAXIMUM</label><input id="tournamentCapacity" type="number" min="2" max="10000" step="1" value="10"><small>Chwazi kantite maksimòm jwè ki ka enskri.</small></div>
         <div class="create-pro-field"><label for="tournamentMethod">MWAYEN PEMAN POU ENSKRIPSYON</label><select id="tournamentMethod"><option value="tranzak">Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select><small>Chwazi mwayen peman ki disponib pou tounwa sa a.</small></div>
         <div class="create-pro-field"><label for="tournamentCreationPaymentMethod">MWAYEN POU PEYE FRÈ PLATFÒM NAN</label><select id="tournamentCreationPaymentMethod"><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select><small>Ou peye frè kreyasyon an anvan tournoi a parèt.</small></div>
@@ -1967,7 +1967,7 @@ td, th { overflow-wrap: anywhere; }
         <div class="create-pro-field" id="tournamentPrize2Wrap"><label for="tournamentPrize2">DEZYÈM PLAS (%)</label><input id="tournamentPrize2" type="number" min="0" max="40" step="1" value="20"></div>
         <div class="create-pro-field" id="tournamentPrize3Wrap"><label for="tournamentPrize3">TWAZYÈM PLAS (%)</label><input id="tournamentPrize3" type="number" min="0" max="40" step="1" value="10"></div>
       </div>
-      <div class="create-pro-included" style="margin-top:12px"><span>🔒</span><div><strong>Frè kreyasyon platfòm: <b id="tournamentCreationFeeAmount">—</b></strong><small id="tournamentCreationFeeDetails">Montan frè platfòm nan kalkile otomatikman selon pri jwè ak kantite jwè maksimòm.</small></div></div>
+      <div class="create-pro-included" style="margin-top:12px"><span>🔒</span><div><strong>Frè kreyasyon platfòm: <b id="tournamentCreationFeeAmount">—</b></strong><small id="tournamentCreationFeeDetails">Montan frè platfòm nan kalkile otomatikman selon pri jwè ak kantite jwè maksimòm.</small><small id="tournamentCreationFeeFxEquivalent" class="create-pro-fx">Ekivalan lòt lajan an ap parèt isit la.</small><small id="tournamentFxRateLabel" class="create-pro-fx">To konvèsyon an ap chaje otomatikman.</small></div></div>
       <div class="create-pro-included"><span>✓</span><div><strong>Kondisyon finansye yo ap rete fiks</strong><small>Avantaj òganizatè a limite ant 2% ak 15%. Pataj prim yo dwe totalize 100% nan fon prim lan epi yo pa ka modifye apre premye enskripsyon an.</small></div></div>
       <div class="create-pro-footer"><div><small>ETAP 1 SOU 2</small><strong>Prèske pare pou lanse</strong></div><button class="tournament-primary create-pro-submit" id="tournamentCreateBtn" type="button">Kontinye <span>→</span></button></div>
     </div>
@@ -1984,7 +1984,7 @@ td, th { overflow-wrap: anywhere; }
       <div id="tournamentConfirmSummary" class="tournament-confirm-summary"></div>
       <div class="tournament-stage-actions">
         <button type="button" class="tournament-secondary" data-t-go="2">← Retounen</button>
-        <button type="button" class="tournament-primary" id="tournamentConfirmCreate">🏆 Konfime epi kreye</button>
+        <button type="button" class="tournament-primary" id="tournamentConfirmCreate">💳 Peye frè platfòm epi kreye tournoi</button>
       </div>
     </div>
   </section>
@@ -6767,8 +6767,10 @@ function setTournamentStage(stage){
 }
 function tournamentValue(id){return document.getElementById(id)?.value??"";}
 const TOURNAMENT_PLATFORM_CREATION_RATE=0.03;
+let tournamentFxRateHTGPerUSD=null,tournamentFxRequest=0;
 function calculateTournamentCreationFee(){const entry=Math.max(0,Number(tournamentValue("tournamentFee"))||0),capacity=Math.max(0,Math.floor(Number(tournamentValue("tournamentCapacity"))||0)),gross=entry*capacity;return {gross,fee:Math.round((gross*TOURNAMENT_PLATFORM_CREATION_RATE+Number.EPSILON)*100)/100};}
-function updateTournamentCreationFeePreview(){const amount=document.getElementById("tournamentCreationFeeAmount"),details=document.getElementById("tournamentCreationFeeDetails");if(!amount||!details)return;const entry=Number(tournamentValue("tournamentFee")),capacity=Number(tournamentValue("tournamentCapacity"));if(!Number.isFinite(entry)||entry<=0||!Number.isInteger(capacity)||capacity<2){amount.textContent="—";details.textContent="Antre yon pri valab ak omwen 2 jwè.";return;}const c=calculateTournamentCreationFee(),currency=tournamentValue("tournamentCurrency");amount.textContent=c.fee.toFixed(2)+" "+currency;details.textContent="Montan total prevwa: "+c.gross.toFixed(2)+" "+currency+". Frè platfòm nan kalkile otomatikman.";}
+function formatTournamentMoney(value,currency){const n=Number(value);if(!Number.isFinite(n))return "—";return currency==="HTG"?n.toLocaleString("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2})+" HTG":"$"+n.toFixed(2)+" USD";}
+async function updateTournamentCreationFeePreview(){const amount=document.getElementById("tournamentCreationFeeAmount"),details=document.getElementById("tournamentCreationFeeDetails"),entryFx=document.getElementById("tournamentEntryFxEquivalent"),feeFx=document.getElementById("tournamentCreationFeeFxEquivalent"),rateLabel=document.getElementById("tournamentFxRateLabel");if(!amount||!details)return;const entry=Number(tournamentValue("tournamentFee")),capacity=Number(tournamentValue("tournamentCapacity")),currency=tournamentValue("tournamentCurrency");if(!Number.isFinite(entry)||entry<=0||!Number.isInteger(capacity)||capacity<2){amount.textContent="—";details.textContent="Antre yon pri patisipasyon valab ak omwen 2 jwè.";if(entryFx)entryFx.textContent="";if(feeFx)feeFx.textContent="";return;}const c=calculateTournamentCreationFee();amount.textContent=formatTournamentMoney(c.fee,currency);details.textContent="Total patisipasyon prevwa: "+formatTournamentMoney(c.gross,currency)+". Frè platfòm lan parèt apa.";if(!accountConnected||!accountToken){if(entryFx)entryFx.textContent="Konekte pou wè ekivalan USD/HTG la.";if(feeFx)feeFx.textContent="";return;}const request=++tournamentFxRequest;if(rateLabel)rateLabel.textContent="⏳ Ap chèche to konvèsyon Tranzak la...";try{const fx=await walletRequest("/fx/preview-rate");if(request!==tournamentFxRequest)return;const rate=Number(fx.customer_rate);if(!Number.isFinite(rate)||rate<=0)throw new Error("To a pa valab");tournamentFxRateHTGPerUSD=rate;const other=currency==="USD"?"HTG":"USD";const entryOther=currency==="USD"?entry*rate:entry/rate;const feeOther=currency==="USD"?c.fee*rate:c.fee/rate;if(entryFx)entryFx.textContent="Ekivalan: "+formatTournamentMoney(entryOther,other);if(feeFx)feeFx.textContent="Ekivalan: "+formatTournamentMoney(feeOther,other);if(rateLabel)rateLabel.textContent="To konvèsyon aktyèl: 1 USD = "+formatTournamentMoney(rate,"HTG")+" (to kliyan Wallet/Tranzak).";}catch(error){if(request!==tournamentFxRequest)return;tournamentFxRateHTGPerUSD=null;if(entryFx)entryFx.textContent="To konvèsyon an pa disponib kounye a.";if(feeFx)feeFx.textContent="Ekivalan an ap disponib lè sèvis FX la retounen.";if(rateLabel)rateLabel.textContent="Pa kapab chaje to konvèsyon an. Eseye ankò.";}}
 function tournamentWinnerCount(){return Math.max(1,Math.min(3,Number(tournamentValue("tournamentWinnerCount"))||1));}
 function syncTournamentPrizeFields(){
  const count=tournamentWinnerCount();
@@ -6799,9 +6801,11 @@ function buildTournamentConfirmation(){
  const payout=Object.entries(shares).map(([place,pct])=>place+"ye: "+pct+"%").join(" · ");
  const rows=[
   ["Non tournoi",tournamentValue("tournamentTitle")],
-  ["Frè patisipasyon",tournamentValue("tournamentFee")+" "+tournamentValue("tournamentCurrency")],
+  ["Frè patisipasyon",formatTournamentMoney(tournamentValue("tournamentFee"),tournamentValue("tournamentCurrency"))],
+   ["Ekivalan frè patisipasyon",tournamentFxRateHTGPerUSD===null?"To FX pa disponib":formatTournamentMoney(tournamentValue("tournamentCurrency")==="USD"?Number(tournamentValue("tournamentFee"))*tournamentFxRateHTGPerUSD:Number(tournamentValue("tournamentFee"))/tournamentFxRateHTGPerUSD,tournamentValue("tournamentCurrency")==="USD"?"HTG":"USD")],
    ["Kantite jwè maksimòm",tournamentValue("tournamentCapacity")],
-   ["Frè platfòm",calculateTournamentCreationFee().fee.toFixed(2)+" "+tournamentValue("tournamentCurrency")],
+   ["Frè platfòm",formatTournamentMoney(calculateTournamentCreationFee().fee,tournamentValue("tournamentCurrency"))],
+   ["Metòd peman frè platfòm",tournamentMethodLabel(tournamentValue("tournamentCreationPaymentMethod"))],
   ["Mwayen peman",tournamentMethodLabel(tournamentValue("tournamentMethod"))],
   ["Avantaj òganizatè",tournamentValue("tournamentCommission")+"% (2–15%)"],
   ["Kantite gayan",tournamentWinnerCount()],
@@ -6811,7 +6815,7 @@ function buildTournamentConfirmation(){
  const root=document.getElementById("tournamentConfirmSummary");
  if(root)root.innerHTML=rows.map(([k,v])=>'<div><small>'+escTournament(k)+'</small><strong>'+escTournament(v)+'</strong></div>').join("");
 }
-["tournamentFee","tournamentCapacity","tournamentCurrency"].forEach(id=>document.getElementById(id)?.addEventListener("input",updateTournamentCreationFeePreview));
+["tournamentFee","tournamentCapacity"].forEach(id=>document.getElementById(id)?.addEventListener("input",updateTournamentCreationFeePreview));
 document.getElementById("tournamentCurrency")?.addEventListener("change",updateTournamentCreationFeePreview);
 document.getElementById("tournamentWinnerCount")?.addEventListener("change",syncTournamentPrizeFields);
 syncTournamentPrizeFields();
