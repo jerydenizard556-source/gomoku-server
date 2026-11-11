@@ -239,7 +239,7 @@ def create_tournament(
         "commission_percent": str(commission), "board_size": board_size,
         "duration_seconds": duration_seconds, "prize_shares": shares,
         "max_participants": capacity, "expected_gross": str(expected_gross),
-        "platform_creation_rate": str(creation_rate), "platform_creation_fee": str(creation_fee),
+        "platform_creation_fee": str(creation_fee),
         "platform_creation_fee_status": "calculated_not_collected",
     }
 
@@ -643,7 +643,7 @@ def advance_bracket(tournament_id: str) -> dict:
             )
             return {"advanced":True,"finished":True,"champion":winners[0] if winners else None,
                     "gross_collected":str(gross),"platform_completion_fee":str(completion_fee),
-                    "platform_completion_rate":"3.00","platform_completion_fee_status":"due",
+                    "platform_completion_fee_status":"due",
                     "currency":tournament["currency"] if tournament else "USD"}
         next_round=last["round_no"]+1
         exists=conn.execute(
@@ -817,7 +817,7 @@ def register_entry(tournament_id: str, player_id: str,
         terms_snapshot={
             "title":t["title"],"entry_fee":str(t["entry_fee"]),"currency":t["currency"],
             "payment_method":t["payment_method"],"commission_percent":str(t["commission_percent"]),
-            "prize_shares":t["prize_shares"],"max_participants":int(t.get("max_participants") or 100),"platform_creation_fee":str(t.get("platform_creation_fee") or "0.00"),"platform_creation_rate":str(t.get("platform_creation_rate") or "3.00"),"accepted_at":accepted_at
+            "prize_shares":t["prize_shares"],"max_participants":int(t.get("max_participants") or 100),"platform_creation_fee":str(t.get("platform_creation_fee") or "0.00"),"accepted_at":accepted_at
         }
         entry_id="entry_"+secrets.token_urlsafe(12).replace("-","_")
         try:
