@@ -101,7 +101,10 @@ def init_tournament_schema() -> None:
         started_at BIGINT,
         max_participants INTEGER NOT NULL DEFAULT 100,
         platform_creation_fee NUMERIC(12,2) NOT NULL DEFAULT 0,
-        platform_creation_rate NUMERIC(5,2) NOT NULL DEFAULT 3.00
+        platform_creation_rate NUMERIC(5,2) NOT NULL DEFAULT 3.00,
+        platform_completion_fee NUMERIC(12,2) NOT NULL DEFAULT 0,
+        platform_completion_rate NUMERIC(5,2) NOT NULL DEFAULT 3.00,
+        platform_completion_fee_status TEXT NOT NULL DEFAULT 'not_due'
     );
     CREATE TABLE IF NOT EXISTS gomoku_tournament_entries (
         entry_id TEXT PRIMARY KEY,
@@ -142,6 +145,9 @@ def init_tournament_schema() -> None:
         conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS max_participants INTEGER NOT NULL DEFAULT 100")
         conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS platform_creation_fee NUMERIC(12,2) NOT NULL DEFAULT 0")
         conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS platform_creation_rate NUMERIC(5,2) NOT NULL DEFAULT 3.00")
+        conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS platform_completion_fee NUMERIC(12,2) NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS platform_completion_rate NUMERIC(5,2) NOT NULL DEFAULT 3.00")
+        conn.execute("ALTER TABLE gomoku_tournaments ADD COLUMN IF NOT EXISTS platform_completion_fee_status TEXT NOT NULL DEFAULT 'not_due'")
 
 
 def _get_tournament(conn, tournament_id: str):
@@ -347,6 +353,9 @@ def tournament_summary(tournament_id: str) -> dict:
             "tournament_id": tournament_id, "status": t["status"],
             "paid_count": stats["paid_count"], "pending_count": stats["pending_count"],
             "gross_collected": str(gross), "commission": str(commission),
+            "platform_completion_rate": str(t.get("platform_completion_rate") or "3.00"),
+            "platform_completion_fee": str(t.get("platform_completion_fee") or "0.00"),
+            "platform_completion_fee_status": str(t.get("platform_completion_fee_status") or "not_due"),
             "prize_pool": str(pool), "prizes": prizes,
             "board_size": t["board_size"], "duration_seconds": t["duration_seconds"],
         }
@@ -610,8 +619,26 @@ def advance_bracket(tournament_id: str) -> dict:
         ).fetchall()
         winners=[x["winner_id"] for x in winners if x["winner_id"]]
         if len(winners)<=1:
-            conn.execute("UPDATE gomoku_tournaments SET status='finished' WHERE tournament_id=%s",(tournament_id,))
-            return {"advanced":True,"finished":True,"champion":winners[0] if winners else None}
+            tournament=conn.execute("SELECT currency FROM gomoku_tournaments WHERE tournament_id=%s FOR UPDATE",(tournament_id,)).fetchone()
+            gross_row=conn.execute(
+                """SELECT COALESCE(SUM(paid_amount),0) AS gross
+                   FROM gomoku_tournament_entries
+                   WHERE tournament_id=%s AND payment_status='verified'""",(tournament_id,)
+            ).fetchone()
+            gross=Decimal(str(gross_row["gross"] or "0"))
+            completion_rate=Decimal("3.00")
+            completion_fee=(gross*completion_rate/Decimal("100")).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+            conn.execute(
+                """UPDATE gomoku_tournaments
+                   SET status='finished',platform_completion_fee=%s,
+                       platform_completion_rate=%s,platform_completion_fee_status='due'
+                   WHERE tournament_id=%s AND platform_completion_fee_status='not_due'""",
+                (completion_fee,completion_rate,tournament_id)
+            )
+            return {"advanced":True,"finished":True,"champion":winners[0] if winners else None,
+                    "gross_collected":str(gross),"platform_completion_fee":str(completion_fee),
+                    "platform_completion_rate":"3.00","platform_completion_fee_status":"due",
+                    "currency":tournament["currency"] if tournament else "USD"}
         next_round=last["round_no"]+1
         exists=conn.execute(
             "SELECT 1 FROM gomoku_tournament_matches WHERE tournament_id=%s AND round_no=%s LIMIT 1",
