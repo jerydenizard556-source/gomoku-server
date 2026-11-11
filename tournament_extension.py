@@ -275,7 +275,8 @@ def create_tournament(
         "duration_seconds": duration_seconds, "prize_shares": shares,
         "max_participants": capacity, "expected_gross": str(expected_gross),
         "platform_creation_fee": str(creation_fee),
-        "platform_creation_fee_status": "calculated_not_collected",
+        "platform_creation_fee_status": "paid",
+        "platform_creation_payment_reference": str(provider_reference),
     }
 
 
