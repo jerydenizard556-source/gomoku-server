@@ -106,6 +106,15 @@ def init_tournament_schema() -> None:
         platform_completion_rate NUMERIC(5,2) NOT NULL DEFAULT 3.00,
         platform_completion_fee_status TEXT NOT NULL DEFAULT 'not_due'
     );
+    CREATE TABLE IF NOT EXISTS gomoku_tournament_creation_payments (
+        checkout_id TEXT PRIMARY KEY,
+        tournament_id TEXT NOT NULL UNIQUE REFERENCES gomoku_tournaments(tournament_id),
+        organizer_id TEXT NOT NULL,
+        provider_reference TEXT NOT NULL,
+        paid_amount NUMERIC(12,2) NOT NULL,
+        currency TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS gomoku_tournament_entries (
         entry_id TEXT PRIMARY KEY,
         tournament_id TEXT NOT NULL REFERENCES gomoku_tournaments(tournament_id),
@@ -171,8 +180,11 @@ def create_tournament(
     prize_shares: dict[str, Any],
     currency: str = "USD",
     max_participants: int = 100,
+    payment_checkout_id: str | None = None,
+    paid_amount: Any = None,
+    provider_reference: str = "",
 ) -> dict:
-    """Create a tournament with validated settings and a 100% prize split."""
+    """Create a tournament only after its platform fee is confirmed by Wallet."""
     if not organizer_id or not title or len(title.strip()) > 100:
         raise TournamentError("Organizer and a title (max 100 characters) are required.")
     fee = _money(entry_fee, "Entry fee")
@@ -220,10 +232,26 @@ def create_tournament(
         raise TournamentError("Prize shares must add up to exactly 100%.")
     if currency not in {"USD", "HTG"}:
         raise TournamentError("Currency must be USD or HTG.")
+    if not payment_checkout_id or not ID_RE.fullmatch(str(payment_checkout_id)):
+        raise TournamentError("Yon peman platfòm valide obligatwa anvan kreyasyon.")
+    if not provider_reference or len(str(provider_reference)) > 200:
+        raise TournamentError("Referans peman Tranzak la manke.")
+    confirmed_amount = _money(paid_amount, "Confirmed platform payment")
+    if confirmed_amount != creation_fee:
+        raise TournamentError("Montan peman platfòm nan pa koresponn ak frè kreyasyon an.")
 
     tid = "tourn_" + secrets.token_urlsafe(12).replace("-", "_")
     now = int(time.time())
     with _db() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (str(payment_checkout_id),))
+        existing = conn.execute(
+            "SELECT tournament_id FROM gomoku_tournament_creation_payments WHERE checkout_id=%s",
+            (str(payment_checkout_id),),
+        ).fetchone()
+        if existing:
+            old = _get_tournament(conn, existing["tournament_id"])
+            return {"ok": True, "tournament_id": existing["tournament_id"],
+                    "status": old["status"], "already_created": True}
         conn.execute(
             """INSERT INTO gomoku_tournaments
             (tournament_id, organizer_id, title, entry_fee, currency,
@@ -232,6 +260,13 @@ def create_tournament(
              VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'registration',%s,%s,%s,%s)""",
             (tid, organizer_id, title.strip(), fee, currency, method, commission,
              board_size, duration_seconds, json.dumps(shares), now, capacity, creation_fee, creation_rate),
+        )
+        conn.execute(
+            """INSERT INTO gomoku_tournament_creation_payments
+               (checkout_id,tournament_id,organizer_id,provider_reference,paid_amount,currency,created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            (str(payment_checkout_id), tid, str(organizer_id), str(provider_reference),
+             confirmed_amount, currency, now),
         )
     return {
         "ok": True, "tournament_id": tid, "status": "registration",
