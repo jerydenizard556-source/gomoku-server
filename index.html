@@ -1960,6 +1960,7 @@ td, th { overflow-wrap: anywhere; }
         <div class="create-pro-field"><label for="tournamentFee">FRÈ PATISIPASYON</label><div class="create-pro-money"><input id="tournamentFee" type="number" min="1" max="1000" step="0.01" value="5"><select id="tournamentCurrency" aria-label="Monnen"><option value="USD">USD $</option><option value="HTG">HTG G</option></select></div><small>Pri chak jwè ap peye pou antre.</small></div>
         <div class="create-pro-field"><label for="tournamentCapacity">KANTITE JWÈ MAXIMUM</label><input id="tournamentCapacity" type="number" min="2" max="10000" step="1" value="10"><small>Chwazi kantite maksimòm jwè ki ka enskri.</small></div>
         <div class="create-pro-field"><label for="tournamentMethod">MWAYEN PEMAN POU ENSKRIPSYON</label><select id="tournamentMethod"><option value="tranzak">Tranzak</option><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select><small>Chwazi mwayen peman ki disponib pou tounwa sa a.</small></div>
+        <div class="create-pro-field"><label for="tournamentCreationPaymentMethod">MWAYEN POU PEYE FRÈ PLATFÒM NAN</label><select id="tournamentCreationPaymentMethod"><option value="moncash">MonCash</option><option value="natcash">NatCash</option></select><small>Ou peye frè kreyasyon an anvan tournoi a parèt.</small></div>
         <div class="create-pro-field"><label for="tournamentCommission">AVANTAJ ÒGANIZATÈ A (%)</label><input id="tournamentCommission" type="number" min="2" max="15" step="1" value="10"><small>Ou ka chwazi ant 2% ak 15%. Rès la sèvi pou prim gayan yo.</small></div>
         <div class="create-pro-field"><label for="tournamentWinnerCount">KONBYEN GAYAN?</label><select id="tournamentWinnerCount"><option value="1">1 gayan</option><option value="2">2 gayan</option><option value="3" selected>3 gayan</option></select><small>Chwazi konbyen plas k ap resevwa prim.</small></div>
         <div class="create-pro-field"><label for="tournamentPrize1">PREMYE PLAS (%)</label><input id="tournamentPrize1" type="number" min="60" max="100" step="1" value="70"><small>Premye plas dwe resevwa omwen 60% nan fon prim lan.</small></div>
@@ -6821,7 +6822,9 @@ document.querySelectorAll("#tournamentScreen [data-t-step]").forEach(b=>b.addEve
  if([2,3,4,5].includes(n)||(n===6&&activeTournamentId))setTournamentStage(n);
 }));
 document.getElementById("tournamentConfirmCreate")?.addEventListener("click",()=>{
- tournamentCreateConfirmed=true;document.getElementById("tournamentCreateBtn")?.click();
+ tournamentCreateConfirmed=true;document.getElementById("tournamentConfirmCreate").disabled=true;
+ document.getElementById("tournamentConfirmCreate").textContent="⏳ Ap kontinye sou peman...";
+ document.getElementById("tournamentCreateBtn")?.click();
 });
 function tournamentNotice(message, success=true) {
   const el=document.getElementById("tournamentMessage");
@@ -7098,16 +7101,34 @@ async function sendTournamentRegister(tid){
     if(button){button.disabled=false;button.textContent="Peye kounye a →";}
   }
 }
-document.getElementById("tournamentCreateBtn")?.addEventListener("click",()=>{
+document.getElementById("tournamentCreateBtn")?.addEventListener("click",async()=>{
   const titleInput=document.getElementById("tournamentTitle"),title=titleInput?.value?.trim()||"";
-  if(!title){tournamentNotice("Ekri non tournoi a anvan ou kreye li.",false);titleInput?.focus();return;}
+  if(!title){tournamentNotice("Ekri non tournoi a anvan ou kontinye.",false);titleInput?.focus();return;}
   if(!validateTournamentPayoutSettings())return;
-   const capacity=Number(tournamentValue("tournamentCapacity"));
-   if(!Number.isInteger(capacity)||capacity<2||capacity>10000){tournamentNotice("Kantite jwè a dwe ant 2 ak 10,000.",false);return;}
-   const shares=getTournamentPrizeShares();
+  const capacity=Number(tournamentValue("tournamentCapacity"));
+  if(!Number.isInteger(capacity)||capacity<2||capacity>10000){tournamentNotice("Kantite jwè a dwe ant 2 ak 10,000.",false);return;}
+  if(!accountConnected||!accountToken){tournamentNotice("Konekte sou kont MR_Jery ou an avan ou peye frè kreyasyon an.",false);return;}
   if(!tournamentCreateConfirmed){buildTournamentConfirmation();setTournamentStage(4);return;}
   tournamentCreateConfirmed=false;
-  if(!tournamentSend("tournament_create",{title,entry_fee:document.getElementById("tournamentFee").value,currency:document.getElementById("tournamentCurrency").value,payment_method:document.getElementById("tournamentMethod").value,commission_percent:document.getElementById("tournamentCommission").value,board_size:Number(document.getElementById("tournamentBoard").value),duration_seconds:Number(document.getElementById("tournamentDuration").value),prize_shares:shares,max_participants:capacity})){return;}
+  const button=document.getElementById("tournamentCreateBtn");
+  if(button){button.disabled=true;button.textContent="⏳ Ap prepare peman an...";}
+  try{
+    const result=await walletRequest("/tournaments/create/checkout",{method:"POST",body:JSON.stringify({
+      title,entry_fee:tournamentValue("tournamentFee"),currency:tournamentValue("tournamentCurrency"),
+      payment_method:tournamentValue("tournamentCreationPaymentMethod")||"moncash",
+      commission_percent:tournamentValue("tournamentCommission"),
+      board_size:Number(tournamentValue("tournamentBoard")),
+      duration_seconds:Number(tournamentValue("tournamentDuration")),
+      prize_shares:getTournamentPrizeShares(),max_participants:capacity,
+      customer_name:currentUsername||"MR Jery Customer"
+    })});
+    if(!result.payment_url)throw new Error("Wallet la pa retounen lyen peman an.");
+    tournamentNotice("Frè platfòm nan pare. Apre Tranzak konfime peman an, tournoi a ap kreye otomatikman.",true);
+    window.location.assign(result.payment_url);
+  }catch(error){
+    tournamentNotice(error.message||"Peman kreyasyon an pa kapab kòmanse kounye a.",false);
+    if(button){button.disabled=false;button.textContent="Konfime epi peye →";}
+  }
 });
 document.getElementById("tournamentAdminLoad")?.addEventListener("click",loadTournamentAdminEntries);
 document.getElementById("tournamentChatSend")?.addEventListener("click",()=>{
