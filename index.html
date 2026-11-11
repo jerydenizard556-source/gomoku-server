@@ -1446,6 +1446,7 @@ td, th { overflow-wrap: anywhere; }
 #tournamentScreen .create-pro-field input::placeholder{color:#60799f;font-weight:500}
 #tournamentScreen .create-pro-field small{display:block;margin-top:8px;color:#8198bd;font-size:11px;font-weight:500;letter-spacing:0}
 #tournamentScreen .create-pro-money{display:grid;grid-template-columns:minmax(0,1fr) 118px;gap:8px}
+#tournamentScreen .create-pro-field .create-pro-fx,#tournamentScreen .create-pro-included .create-pro-fx{color:#f4d58b;font-weight:700;line-height:1.5}
 #tournamentScreen .create-pro-money select{padding:0 10px;font-size:13px;color:#ffdf8a}
 #tournamentScreen .create-pro-included{display:flex;align-items:center;gap:12px;padding:15px 16px;border:1px solid rgba(62,156,130,.25);border-radius:12px;background:rgba(20,112,91,.1)}
 #tournamentScreen .create-pro-included>span{display:grid;place-items:center;width:27px;height:27px;flex:0 0 27px;border-radius:50%;background:rgba(64,205,158,.16);color:#62e0b2;font-weight:1000}
@@ -6803,6 +6804,7 @@ function buildTournamentConfirmation(){
   ["Non tournoi",tournamentValue("tournamentTitle")],
   ["Frè patisipasyon",formatTournamentMoney(tournamentValue("tournamentFee"),tournamentValue("tournamentCurrency"))],
    ["Ekivalan frè patisipasyon",tournamentFxRateHTGPerUSD===null?"To FX pa disponib":formatTournamentMoney(tournamentValue("tournamentCurrency")==="USD"?Number(tournamentValue("tournamentFee"))*tournamentFxRateHTGPerUSD:Number(tournamentValue("tournamentFee"))/tournamentFxRateHTGPerUSD,tournamentValue("tournamentCurrency")==="USD"?"HTG":"USD")],
+   ["Ekivalan frè platfòm",tournamentFxRateHTGPerUSD===null?"To FX pa disponib":formatTournamentMoney(tournamentValue("tournamentCurrency")==="USD"?calculateTournamentCreationFee().fee*tournamentFxRateHTGPerUSD:calculateTournamentCreationFee().fee/tournamentFxRateHTGPerUSD,tournamentValue("tournamentCurrency")==="USD"?"HTG":"USD")],
    ["Kantite jwè maksimòm",tournamentValue("tournamentCapacity")],
    ["Frè platfòm",formatTournamentMoney(calculateTournamentCreationFee().fee,tournamentValue("tournamentCurrency"))],
    ["Metòd peman frè platfòm",tournamentMethodLabel(tournamentValue("tournamentCreationPaymentMethod"))],
@@ -7112,7 +7114,11 @@ document.getElementById("tournamentCreateBtn")?.addEventListener("click",async()
   const capacity=Number(tournamentValue("tournamentCapacity"));
   if(!Number.isInteger(capacity)||capacity<2||capacity>10000){tournamentNotice("Kantite jwè a dwe ant 2 ak 10,000.",false);return;}
   if(!accountConnected||!accountToken){tournamentNotice("Konekte sou kont MR_Jery ou an avan ou peye frè kreyasyon an.",false);return;}
-  if(!tournamentCreateConfirmed){buildTournamentConfirmation();setTournamentStage(4);return;}
+  if(!tournamentCreateConfirmed){
+    await updateTournamentCreationFeePreview();
+    if(tournamentFxRateHTGPerUSD===null){tournamentNotice("Nou bezwen to konvèsyon aktyèl la pou montre ekivalan egzak USD/HTG a. Eseye ankò.",false);return;}
+    buildTournamentConfirmation();setTournamentStage(4);return;
+  }
   tournamentCreateConfirmed=false;
   const button=document.getElementById("tournamentCreateBtn");
   if(button){button.disabled=true;button.textContent="⏳ Ap prepare peman an...";}
