@@ -4,7 +4,7 @@ import websockets, psycopg
 import tournament_extension as tournament
 from websockets.http11 import Headers, Response
 HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
-DATABASE_URL=os.environ.get('DATABASE_URL'); TOURNAMENT_PAYMENT_SECRET=os.environ.get('TOURNAMENT_PAYMENT_SECRET','').strip(); db=None
+DATABASE_URL=os.environ.get('DATABASE_URL'); TOURNAMENT_PAYMENT_SECRET=os.environ.get('TOURNAMENT_PAYMENT_SECRET',os.environ.get('GOMOKU_SERVER_SECRET','')).strip(); db=None
 if DATABASE_URL:
     try:
         db=psycopg.connect(DATABASE_URL); db.autocommit=True
