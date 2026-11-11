@@ -7116,6 +7116,7 @@ document.getElementById("tournamentCreateBtn")?.addEventListener("click",async()
     const result=await walletRequest("/tournaments/create/checkout",{method:"POST",body:JSON.stringify({
       title,entry_fee:tournamentValue("tournamentFee"),currency:tournamentValue("tournamentCurrency"),
       payment_method:tournamentValue("tournamentCreationPaymentMethod")||"moncash",
+      registration_payment_method:tournamentValue("tournamentMethod"),
       commission_percent:tournamentValue("tournamentCommission"),
       board_size:Number(tournamentValue("tournamentBoard")),
       duration_seconds:Number(tournamentValue("tournamentDuration")),
@@ -7127,7 +7128,9 @@ document.getElementById("tournamentCreateBtn")?.addEventListener("click",async()
     window.location.assign(result.payment_url);
   }catch(error){
     tournamentNotice(error.message||"Peman kreyasyon an pa kapab kòmanse kounye a.",false);
-    if(button){button.disabled=false;button.textContent="Konfime epi peye →";}
+    if(button){button.disabled=false;button.textContent="Kontinye →";}
+    const confirmButton=document.getElementById("tournamentConfirmCreate");
+    if(confirmButton){confirmButton.disabled=false;confirmButton.textContent="🏆 Rekòmanse peman an";}
   }
 });
 document.getElementById("tournamentAdminLoad")?.addEventListener("click",loadTournamentAdminEntries);
