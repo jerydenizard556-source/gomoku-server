@@ -558,12 +558,8 @@ async def handler(ws):
                     except Exception as ex: await send(ws,{'type':'tournament_error','message':str(ex)})
                     continue
                 elif t=='tournament_create':
-                    acct=connected_accounts.get(ws)
-                    try:
-                        if not acct: raise tournament.TournamentError('Konekte pou kreye yon tournoi.')
-                        result=await asyncio.to_thread(tournament.create_tournament,str(acct['player_id']),d.get('title',''),d.get('entry_fee'),d.get('payment_method'),d.get('commission_percent',0),int(d.get('board_size',15)),int(d.get('duration_seconds',600)),d.get('prize_shares',{'1':'70','2':'20','3':'10'}),d.get('currency','USD'),int(d.get('max_participants',100)))
-                        await send(ws,{'type':'tournament_create_result',**result})
-                    except Exception as ex: await send(ws,{'type':'tournament_create_result','ok':False,'message':str(ex)})
+                    await send(ws,{'type':'tournament_create_result','ok':False,
+                        'message':'Pou sekirite, ou dwe peye frè platfòm nan anvan kreyasyon tournoi a.'})
                     continue
                 elif t=='tournament_delete':
                     acct=connected_accounts.get(ws)
@@ -759,14 +755,23 @@ def health_response(connection, request):
             if request.method == 'HEAD':
                 body = b''
             return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
-        if path in ('/internal/tournament/entry', '/internal/tournament/payment-verified'):
+        if path in ('/internal/tournament/entry', '/internal/tournament/payment-verified', '/internal/tournament/creation-paid'):
             supplied = request.headers.get('X-Gomoku-Secret', '')
             if not TOURNAMENT_PAYMENT_SECRET or not hmac.compare_digest(supplied, TOURNAMENT_PAYMENT_SECRET):
                 body = b'{"ok":false,"error":"Unauthorized"}'
                 return Response(401, 'Unauthorized', Headers([('Content-Type','application/json'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
             q = parse_qs(urlsplit(request.path).query)
             try:
-                if path == '/internal/tournament/entry':
+                if path == '/internal/tournament/creation-paid':
+                    def one(key): return (q.get(key) or [''])[0]
+                    shares=json.loads(one('prize_shares') or '{}')
+                    result=tournament.create_tournament(
+                        one('organizer_id'),one('title'),one('entry_fee'),one('payment_method'),
+                        one('commission_percent'),int(one('board_size') or 15),
+                        int(one('duration_seconds') or 600),shares,one('currency'),
+                        int(one('max_participants') or 100),one('checkout_id'),
+                        one('paid_amount'),one('provider_reference'))
+                elif path == '/internal/tournament/entry':
                     tournament_id = (q.get('tournament_id') or [''])[0]
                     player_id = (q.get('player_id') or [''])[0]
                     terms = (q.get('terms_accepted') or [''])[0].lower() == 'true'
