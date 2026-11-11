@@ -1968,16 +1968,17 @@ td, th { overflow-wrap: anywhere; }
         <div class="create-pro-field" id="tournamentPrize2Wrap"><label for="tournamentPrize2">DEZYÈM PLAS (%)</label><input id="tournamentPrize2" type="number" min="0" max="40" step="1" value="20"></div>
         <div class="create-pro-field" id="tournamentPrize3Wrap"><label for="tournamentPrize3">TWAZYÈM PLAS (%)</label><input id="tournamentPrize3" type="number" min="0" max="40" step="1" value="10"></div>
       </div>
+      <div class="create-pro-fields" style="margin-top:14px">
+        <div class="create-pro-field"><label for="tournamentBoard">GWOSÈ TABLO A</label><select id="tournamentBoard"><option value="15" selected>15 × 15</option><option value="19">19 × 19</option><option value="20">20 × 20</option></select><small>Chwazi dimansyon tablo Gomoku a.</small></div>
+        <div class="create-pro-field"><label for="tournamentDuration">DIRE MATCH LA</label><select id="tournamentDuration"><option value="60">1 minit</option><option value="120">2 minit</option><option value="180">3 minit</option><option value="300">5 minit</option><option value="600" selected>10 minit</option><option value="900">15 minit</option><option value="1200">20 minit</option><option value="1800">30 minit</option></select><small>Tan refleksyon ki disponib pou chak match.</small></div>
+      </div>
       <div class="create-pro-included" style="margin-top:12px"><span>🔒</span><div><strong>Frè kreyasyon platfòm: <b id="tournamentCreationFeeAmount">—</b></strong><small id="tournamentCreationFeeDetails">Montan frè platfòm nan kalkile otomatikman selon pri jwè ak kantite jwè maksimòm.</small><small id="tournamentCreationFeeFxEquivalent" class="create-pro-fx">Ekivalan lòt lajan an ap parèt isit la.</small><small id="tournamentFxRateLabel" class="create-pro-fx">To konvèsyon an ap chaje otomatikman.</small></div></div>
       <div class="create-pro-included"><span>✓</span><div><strong>Kondisyon finansye yo ap rete fiks</strong><small>Avantaj òganizatè a limite ant 2% ak 15%. Pataj prim yo dwe totalize 100% nan fon prim lan epi yo pa ka modifye apre premye enskripsyon an.</small></div></div>
       <div class="create-pro-footer"><div><small>ETAP 1 SOU 2</small><strong>Prèske pare pou lanse</strong></div><button class="tournament-primary create-pro-submit" id="tournamentCreateBtn" type="button">Kontinye <span>→</span></button></div>
     </div>
     <div class="create-pro-security">🔒 Konfigirasyon an ap rete asosye ak kont òganizatè a.</div>
   </div>
-  <div class="tournament-hidden-defaults" hidden aria-hidden="true">
-    <select id="tournamentBoard"><option value="15" selected>15</option><option value="19">19</option><option value="20">20</option></select>
-    <select id="tournamentDuration"><option value="600" selected>600</option></select>
-  </div>
+
 </section>
   <section class="tournament-stage" data-t-stage="4">
     <div class="tournament-confirm-card">
@@ -6812,7 +6813,7 @@ function buildTournamentConfirmation(){
   ["Avantaj òganizatè",tournamentValue("tournamentCommission")+"% (2–15%)"],
   ["Kantite gayan",tournamentWinnerCount()],
   ["Distribisyon fon prim",payout],
-  ["Paramèt jwèt","15 × 15 · 10 minit"]
+  ["Paramèt jwèt",tournamentValue("tournamentBoard")+" × "+tournamentValue("tournamentBoard")+" · "+Math.round(Number(tournamentValue("tournamentDuration"))/60)+" minit"]
  ];
  const root=document.getElementById("tournamentConfirmSummary");
  if(root)root.innerHTML=rows.map(([k,v])=>'<div><small>'+escTournament(k)+'</small><strong>'+escTournament(v)+'</strong></div>').join("");
