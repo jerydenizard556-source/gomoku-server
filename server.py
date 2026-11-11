@@ -1,9 +1,10 @@
 import asyncio,json,secrets,string,time,os,hashlib,hmac,re
+from urllib.parse import urlsplit, parse_qs
 import websockets, psycopg
 import tournament_extension as tournament
 from websockets.http11 import Headers, Response
 HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
-DATABASE_URL=os.environ.get('DATABASE_URL'); db=None
+DATABASE_URL=os.environ.get('DATABASE_URL'); TOURNAMENT_PAYMENT_SECRET=os.environ.get('TOURNAMENT_PAYMENT_SECRET','').strip(); db=None
 if DATABASE_URL:
     try:
         db=psycopg.connect(DATABASE_URL); db.autocommit=True
@@ -750,15 +751,43 @@ async def handler(ws):
     except Exception as e:print('Erreur client:',repr(e))
     finally:await disconnect(ws)
 def health_response(connection, request):
-    # Render's health checker may send HEAD/GET to the service URL.
-    # A pure WebSocket listener normally expects GET + Upgrade and logs
-    # HEAD as a failed WebSocket handshake. Intercept normal HTTP probes here.
-    path = request.path.split('?', 1)[0]
-    if path in ('/', '/health', '/healthz') and request.headers.get('Upgrade', '').lower() != 'websocket':
-        body = b'{\"ok\":true,\"service\":\"MR_Jery_Morpion_Game_Server\",\"websocket\":true}'
-        if request.method == 'HEAD':
-            body = b''
-        return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+    # Render health probes and private Wallet-to-game payment callbacks.
+    path = urlsplit(request.path).path
+    if request.headers.get('Upgrade', '').lower() != 'websocket' and request.method == 'GET':
+        if path in ('/', '/health', '/healthz'):
+            body = b'{"ok":true,"service":"MR_Jery_Morpion_Game_Server","websocket":true}'
+            return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+        if path in ('/internal/tournament/entry', '/internal/tournament/payment-verified'):
+            supplied = request.headers.get('X-Gomoku-Secret', '')
+            if not TOURNAMENT_PAYMENT_SECRET or not hmac.compare_digest(supplied, TOURNAMENT_PAYMENT_SECRET):
+                body = b'{"ok":false,"error":"Unauthorized"}'
+                return Response(401, 'Unauthorized', Headers([('Content-Type','application/json'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+            q = parse_qs(urlsplit(request.path).query)
+            try:
+                if path == '/internal/tournament/entry':
+                    tournament_id = (q.get('tournament_id') or [''])[0]
+                    player_id = (q.get('player_id') or [''])[0]
+                    terms = (q.get('terms_accepted') or [''])[0].lower() == 'true'
+                    if not terms:
+                        raise tournament.TournamentError('Ou dwe aksepte kondisyon tounwa a.')
+                    result = tournament.register_entry(tournament_id, player_id, online_checkout=True)
+                    with tournament._db() as conn:
+                        row = tournament._get_tournament(conn, tournament_id)
+                    result.update({'amount': str(row['entry_fee']), 'currency': row['currency'],
+                                   'title': row['title'], 'payment_method': row['payment_method']})
+                else:
+                    entry_id = (q.get('entry_id') or [''])[0]
+                    provider_reference = (q.get('provider_reference') or [''])[0]
+                    result = tournament.mark_payment_verified(entry_id, provider_reference)
+                body = json.dumps(result, separators=(',', ':')).encode()
+                return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+            except tournament.TournamentError as ex:
+                body = json.dumps({'ok':False,'error':str(ex)}, separators=(',', ':')).encode()
+                return Response(400, 'Bad Request', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+            except Exception as ex:
+                print('Tournament payment bridge error:', repr(ex))
+                body = b'{"ok":false,"error":"Internal payment service error"}'
+                return Response(500, 'Internal Server Error', Headers([('Content-Type','application/json'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
     return None
 
 async def main():
