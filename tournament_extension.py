@@ -249,9 +249,11 @@ def register_entry(
     player_id: str,
     payment_reference: str = "",
     proof_data: str = "",
+    online_checkout: bool = False,
 ) -> dict:
     """
     Create a PENDING entry. No seat is reserved/confirmed until payment verifies.
+    online_checkout is set only by the authenticated internal Wallet bridge.
     proof_data should be a private storage key, not a public image URL.
     """
     if not player_id:
@@ -262,8 +264,14 @@ def register_entry(
         t = _get_tournament(conn, tournament_id)
         if t["status"] != "registration":
             raise TournamentError("Registration is closed.")
-        if not proof_data and t["payment_method"] in {"moncash", "natcash"}:
+        if not proof_data and t["payment_method"] in {"moncash", "natcash"} and not online_checkout:
             raise TournamentError("A payment proof reference is required.")
+        current = conn.execute(
+            "SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",
+            (tournament_id,),
+        ).fetchone()
+        if int(current["n"] or 0) >= int(t.get("max_participants") or 100):
+            raise TournamentError("Tournament registration is full.")
         entry_id = "entry_" + secrets.token_urlsafe(12).replace("-", "_")
         try:
             conn.execute(
@@ -353,7 +361,6 @@ def tournament_summary(tournament_id: str) -> dict:
             "tournament_id": tournament_id, "status": t["status"],
             "paid_count": stats["paid_count"], "pending_count": stats["pending_count"],
             "gross_collected": str(gross), "commission": str(commission),
-            "platform_completion_rate": str(t.get("platform_completion_rate") or "3.00"),
             "platform_completion_fee": str(t.get("platform_completion_fee") or "0.00"),
             "platform_completion_fee_status": str(t.get("platform_completion_fee_status") or "not_due"),
             "prize_pool": str(pool), "prizes": prizes,
@@ -534,7 +541,6 @@ def _public_tournament(tournament_id: str) -> dict:
             "currency":t["currency"],"payment_method":t["payment_method"],
             "commission_percent":str(t["commission_percent"]),
              "max_participants":int(t.get("max_participants") or 100),
-             "platform_creation_rate":str(t.get("platform_creation_rate") or "3.00"),
              "platform_creation_fee":str(t.get("platform_creation_fee") or "0.00"),
             "board_size":t["board_size"],"duration_seconds":t["duration_seconds"],
             "prize_shares":t["prize_shares"],"status":t["status"],
