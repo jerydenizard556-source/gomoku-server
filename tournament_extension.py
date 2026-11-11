@@ -784,7 +784,7 @@ def register_entry(tournament_id: str, player_id: str,
         terms_snapshot={
             "title":t["title"],"entry_fee":str(t["entry_fee"]),"currency":t["currency"],
             "payment_method":t["payment_method"],"commission_percent":str(t["commission_percent"]),
-            "prize_shares":t["prize_shares"],"accepted_at":accepted_at
+            "prize_shares":t["prize_shares"],"max_participants":int(t.get("max_participants") or 100),"platform_creation_fee":str(t.get("platform_creation_fee") or "0.00"),"platform_creation_rate":str(t.get("platform_creation_rate") or "3.00"),"accepted_at":accepted_at
         }
         entry_id="entry_"+secrets.token_urlsafe(12).replace("-","_")
         try:
