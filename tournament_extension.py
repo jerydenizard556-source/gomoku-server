@@ -842,7 +842,7 @@ def register_entry(tournament_id: str, player_id: str,
                    terms_accepted: bool = False, online_checkout: bool = False) -> dict:
     if not player_id: raise TournamentError("Player ID is required.")
     if terms_accepted is not True:
-        raise TournamentError("Player must accept the tournament terms before registering.")
+        raise TournamentError("Ou dwe aksepte kondisyon tounwa a anvan ou enskri.")
     if len(proof_data)>900000: raise TournamentError("Payment proof image exceeds the 650 KB limit.")
     with _db() as conn:
         # Lock the tournament row so its terms cannot race with registration/deletion.
