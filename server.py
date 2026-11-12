@@ -20,6 +20,38 @@ except Exception as tournament_db_error:
     print('Tournament schema initialization error:',repr(tournament_db_error))
 
 
+def ensure_db_connection():
+    """Verify the Neon connection and reconnect if it was closed or went stale."""
+    global db
+    if not DATABASE_URL:
+        return None
+    try:
+        if db is None or db.closed:
+            raise psycopg.OperationalError('Database connection is closed')
+        with db.cursor() as cur:
+            cur.execute('SELECT 1')
+            cur.fetchone()
+        return db
+    except Exception as first_error:
+        try:
+            if db is not None:
+                db.close()
+        except Exception:
+            pass
+        try:
+            db = psycopg.connect(DATABASE_URL, connect_timeout=10)
+            db.autocommit = True
+            with db.cursor() as cur:
+                cur.execute('SELECT 1')
+                cur.fetchone()
+            print('PostgreSQL connection restored after stale connection.')
+            return db
+        except Exception as reconnect_error:
+            print('Database reconnect error:', repr(reconnect_error))
+            db = None
+            return None
+
+
 def hash_password(p):
     s=secrets.token_bytes(16); h=hashlib.pbkdf2_hmac('sha256',p.encode(),s,200000); return f'pbkdf2_sha256$200000${s.hex()}${h.hex()}'
 def verify_password(p,x):
@@ -45,6 +77,7 @@ async def send(ws,d):
     try: await ws.send(json.dumps(d))
     except: pass
 async def register(ws,u,e,p,pc):
+    db = ensure_db_connection()
     if db is None: return await send(ws,{'type':'register_result','success':False,'message':'Database pa disponib.'})
     u=str(u or '').strip(); e=str(e or '').strip().lower(); p=str(p or ''); pc=str(pc or '')
     if not valid_username(u): return await send(ws,{'type':'register_result','success':False,'message':'Pseudo a dwe genyen 3-50 karaktè epi sèlman lèt, chif oswa _.'})
@@ -60,6 +93,7 @@ async def register(ws,u,e,p,pc):
         await send(ws,{'type':'register_result','success':True,'message':'Kont lan kreye avèk siksè.','player_id':pid,'username':u,'email':e,'account_token':t,'points':0,'wins':0,'losses':0,'draws':0,'level':1})
     except Exception as ex: print('Register error:',repr(ex)); await send(ws,{'type':'register_result','success':False,'message':'Erè pandan kreyasyon kont lan.'})
 async def login(ws,l,p):
+    db = ensure_db_connection()
     if db is None: return await send(ws,{'type':'login_result','success':False,'message':'Database pa disponib.'})
     l=str(l or '').strip(); p=str(p or '')
     if not l or not p: return await send(ws,{'type':'login_result','success':False,'message':'Tanpri ranpli tout chan yo.'})
