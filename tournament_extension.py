@@ -839,9 +839,9 @@ def can_spectator_use_mic(tournament_id: str, player_id: str) -> bool:
 # Security/UX refinements for the integrated server.
 def register_entry(tournament_id: str, player_id: str,
                    payment_reference: str = "", proof_data: str = "",
-                   terms_accepted: bool = False) -> dict:
+                   terms_accepted: bool = False, online_checkout: bool = False) -> dict:
     if not player_id: raise TournamentError("Player ID is required.")
-    if not terms_accepted:
+    if terms_accepted is not True:
         raise TournamentError("Player must accept the tournament terms before registering.")
     if len(proof_data)>900000: raise TournamentError("Payment proof image exceeds the 650 KB limit.")
     with _db() as conn:
@@ -852,13 +852,15 @@ def register_entry(tournament_id: str, player_id: str,
         current_entries=conn.execute("SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",(tournament_id,)).fetchone()["n"]
         if int(current_entries or 0)>=int(t.get("max_participants") or 100):
             raise TournamentError("Tournoi sa a rive nan kantite maksimòm jwè li ka resevwa.")
-        if not proof_data and t["payment_method"] in {"moncash","natcash"}:
+        if not proof_data and t["payment_method"] in {"moncash","natcash"} and not online_checkout:
             raise TournamentError("A payment proof image is required for this payment method.")
         accepted_at=int(time.time())
         terms_snapshot={
+            "version":"gomoku-tournament-terms-v1","accepted":True,"accepted_at":accepted_at,
             "title":t["title"],"entry_fee":str(t["entry_fee"]),"currency":t["currency"],
             "payment_method":t["payment_method"],"commission_percent":str(t["commission_percent"]),
-            "prize_shares":t["prize_shares"],"max_participants":int(t.get("max_participants") or 100),"platform_creation_fee":str(t.get("platform_creation_fee") or "0.00"),"accepted_at":accepted_at
+            "prize_shares":t["prize_shares"],"max_participants":int(t.get("max_participants") or 100),
+            "platform_creation_fee":str(t.get("platform_creation_fee") or "0.00")
         }
         entry_id="entry_"+secrets.token_urlsafe(12).replace("-","_")
         try:
