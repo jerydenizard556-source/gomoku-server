@@ -34,6 +34,11 @@ class FakeConnection:
                 "payment_method": self.payment_method,
                 "entry_fee": Decimal("10.00"),
                 "max_participants": 100,
+                "title": "Test Tournament",
+                "currency": "USD",
+                "commission_percent": Decimal("5.00"),
+                "prize_shares": {"1": "100.00"},
+                "platform_creation_fee": Decimal("3.00"),
             })
         if "SELECT COUNT(*) AS n" in query:
             return FakeResult({"n": 0})
@@ -56,7 +61,7 @@ class TournamentRegistrationTermsTests(unittest.TestCase):
     def test_manual_payment_requires_proof_after_terms_acceptance(self):
         fake_db = FakeConnection("moncash")
         with patch.object(tournament, "_db", return_value=fake_db):
-            with self.assertRaisesRegex(tournament.TournamentError, "proof reference"):
+            with self.assertRaisesRegex(tournament.TournamentError, "proof image"):
                 tournament.register_entry(
                     "tourn_test_123", "player_1", terms_accepted=True,
                 )
