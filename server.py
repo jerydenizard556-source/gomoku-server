@@ -842,6 +842,65 @@ def health_response(connection, request):
                 print('Tournament payment bridge error:', repr(ex))
                 body = b'{"ok":false,"error":"Internal payment service error"}'
                 return Response(500, 'Internal Server Error', Headers([('Content-Type','application/json'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+    if path == '/internal/migrate-ui' and request.headers.get('Upgrade', '').lower() != 'websocket':
+        page = b"""<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Gomoku TEST migration</title><body style='font:16px Arial;max-width:600px;margin:40px auto;padding:20px'><h2>Migrasyon ansyen kont yo</h2><p>Klike yon sèl fwa. Sa transfere kont ak modpas chiffres yo sèlman. Sesyon ak done wallet pap transfere.</p><button id=go>Kòmanse migrasyon an</button><pre id=out></pre><script>go.onclick=async()=>{go.disabled=true;out.textContent='Migrasyon ap fèt...';try{let r=await fetch('/internal/migrate-accounts',{headers:{'X-Account-Migration-Secret':location.hash.slice(1)},cache:'no-store'});let j=await r.json();out.textContent=JSON.stringify(j,null,2);history.replaceState(null,'',location.pathname)}catch(e){out.textContent='Erè koneksyon. Kontakte sipò.';go.disabled=false}}</script></body>"""
+        return Response(200, 'OK', Headers([('Content-Type','text/html; charset=utf-8'), ('Content-Length', str(len(page))), ('Cache-Control','no-store')]), page)
+    if path == '/internal/migrate-accounts' and request.headers.get('Upgrade', '').lower() != 'websocket':
+        supplied = request.headers.get('X-Account-Migration-Secret', '')
+        expected = os.environ.get('ACCOUNT_MIGRATION_SECRET', '')
+        old_url = os.environ.get('OLD_GOMOKU_DATABASE_URL', '')
+        target_url = os.environ.get('TEST_DATABASE_URL') or DATABASE_URL
+        if not expected or not hmac.compare_digest(supplied, expected):
+            body = b'{"ok":false,"error":"Unauthorized"}'
+            return Response(401, 'Unauthorized', Headers([('Content-Type','application/json'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+        if not old_url or not target_url:
+            body = b'{"ok":false,"error":"Database configuration missing"}'
+            return Response(503, 'Service Unavailable', Headers([('Content-Type','application/json'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
+        source = target = None
+        try:
+            source = psycopg.connect(old_url, connect_timeout=15)
+            target = psycopg.connect(target_url, connect_timeout=15)
+            with source.cursor() as sc, target.cursor() as tc:
+                sc.execute("SELECT username,email,password_hash,created_at,points,wins,losses,draws FROM players ORDER BY id")
+                rows = sc.fetchall()
+                inserted = skipped = 0
+                for row in rows:
+                    user_name,email_value,password_value,created_value,points_value,wins_value,losses_value,draws_value = row
+                    if not user_name or not email_value or not password_value or not str(password_value).startswith('pbkdf2_sha256$200000
+    print(f'Serveur Gomoku lance sou {HOST}:{PORT}')
+    asyncio.create_task(timer_loop())
+    async with websockets.serve(
+        handler, HOST, PORT,
+        process_request=health_response,
+        ping_interval=20, ping_timeout=20,
+        max_size=1_000_000,
+    ):
+        print('WebSocket server prêt + HTTP health endpoint /health.')
+        await asyncio.Future()
+if __name__=='__main__':asyncio.run(main())
+):
+                        skipped += 1
+                        continue
+                    tc.execute("SELECT 1 FROM players WHERE LOWER(username)=LOWER(%s) OR LOWER(email)=LOWER(%s) LIMIT 1",(user_name,email_value))
+                    if tc.fetchone():
+                        skipped += 1
+                        continue
+                    tc.execute("INSERT INTO players(username,email,password_hash,created_at,points,wins,losses,draws) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",(user_name,email_value,password_value,created_value,points_value or 0,wins_value or 0,losses_value or 0,draws_value or 0))
+                    inserted += 1
+            target.commit()
+            result = {'ok':True,'source_accounts':len(rows),'inserted':inserted,'skipped':skipped,'sessions_migrated':0,'wallet_data_migrated':False}
+            body = json.dumps(result,separators=(',',':')).encode()
+            return Response(200,'OK',Headers([('Content-Type','application/json'),('Content-Length',str(len(body))),('Cache-Control','no-store')]),body)
+        except Exception as ex:
+            if target is not None:
+                try: target.rollback()
+                except Exception: pass
+            print('Legacy account migration error:',repr(ex))
+            body = b'{"ok":false,"error":"Migration failed; no account data was committed"}'
+            return Response(500,'Internal Server Error',Headers([('Content-Type','application/json'),('Content-Length',str(len(body))),('Cache-Control','no-store')]),body)
+        finally:
+            if source is not None: source.close()
+            if target is not None: target.close()
     return None
 
 async def main():
