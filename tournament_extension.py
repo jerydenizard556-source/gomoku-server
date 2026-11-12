@@ -285,13 +285,17 @@ def register_entry(
     player_id: str,
     payment_reference: str = "",
     proof_data: str = "",
+    terms_accepted: bool = False,
     online_checkout: bool = False,
 ) -> dict:
     """
     Create a PENDING entry. No seat is reserved/confirmed until payment verifies.
+    terms_accepted must be explicitly acknowledged before an entry is created.
     online_checkout is set only by the authenticated internal Wallet bridge.
     proof_data should be a private storage key, not a public image URL.
     """
+    if terms_accepted is not True:
+        raise TournamentError("Ou dwe aksepte kondisyon tounwa a anvan ou enskri.")
     if not player_id:
         raise TournamentError("Player ID is required.")
     if len(proof_data) > 500:
@@ -313,10 +317,11 @@ def register_entry(
             conn.execute(
                 """INSERT INTO gomoku_tournament_entries
                 (entry_id,tournament_id,player_id,payment_reference,proof_data,
-                 payment_status,paid_amount,created_at)
-                VALUES (%s,%s,%s,%s,%s,'pending',%s,%s)""",
+                 payment_status,paid_amount,created_at,terms_accepted_at,terms_snapshot)
+                VALUES (%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s::jsonb)""",
                 (entry_id, tournament_id, player_id, payment_reference or None,
-                 proof_data or None, t["entry_fee"], int(time.time())),
+                 proof_data or None, t["entry_fee"], int(time.time()), int(time.time()),
+                 json.dumps({"version":"gomoku-tournament-terms-v1","accepted":True})),
             )
         except psycopg.errors.UniqueViolation:
             raise TournamentError("Player already registered for this tournament.")
