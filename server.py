@@ -753,14 +753,29 @@ def health_response(connection, request):
         if path in ('/', '/health', '/healthz'):
             body = b'{"ok":true,"service":"MR_Jery_Morpion_Game_Server","websocket":true}'
             return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
-        if path in ('/internal/tournament/entry', '/internal/tournament/payment-verified', '/internal/tournament/creation-paid'):
+        if path in ('/internal/account/resolve', '/internal/tournament/entry', '/internal/tournament/payment-verified', '/internal/tournament/creation-paid'):
             supplied = request.headers.get('X-Gomoku-Secret', '')
             if not TOURNAMENT_PAYMENT_SECRET or not hmac.compare_digest(supplied, TOURNAMENT_PAYMENT_SECRET):
                 body = b'{"ok":false,"error":"Unauthorized"}'
                 return Response(401, 'Unauthorized', Headers([('Content-Type','application/json'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
             q = parse_qs(urlsplit(request.path).query)
             try:
-                if path == '/internal/tournament/creation-paid':
+                if path == '/internal/account/resolve':
+                    token_value = (q.get('account_token') or [''])[0]
+                    if not token_value or len(token_value) < 20 or db is None:
+                        raise tournament.TournamentError('Kont jwèt la pa valab.')
+                    c = db.cursor()
+                    c.execute('''SELECT p.id,p.username,p.email
+                                 FROM account_sessions s
+                                 JOIN players p ON p.id=s.player_id
+                                 WHERE s.token_hash=%s''', (token_hash(token_value),))
+                    row = c.fetchone()
+                    c.close()
+                    if not row:
+                        raise tournament.TournamentError('Sesyon kont jwèt la pa jwenn.')
+                    result = {'ok': True, 'game_user_id': str(row[0]),
+                              'username': row[1], 'email': row[2]}
+                elif path == '/internal/tournament/creation-paid':
                     def one(key): return (q.get(key) or [''])[0]
                     shares=json.loads(one('prize_shares') or '{}')
                     result=tournament.create_tournament(
