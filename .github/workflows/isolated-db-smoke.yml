@@ -52,3 +52,7 @@ jobs:
           assert count >= 5, f"Expected Gomoku tables, found {count}"
           print(f"Gomoku database smoke test passed ({count} tables).")
           PY
+      - name: Compile Python sources
+        run: python -m compileall -q server.py tournament_extension.py tests scripts
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
