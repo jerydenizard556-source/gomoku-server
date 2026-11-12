@@ -52,6 +52,10 @@ jobs:
           assert count >= 5, f"Expected Gomoku tables, found {count}"
           print(f"Gomoku database smoke test passed ({count} tables).")
           PY
+      - name: Verify Neon TEST database (read-only)
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: python scripts/check_neon_test_db.py
       - name: Compile Python sources
         run: python -m compileall -q server.py tournament_extension.py tests scripts
       - name: Run regression tests
