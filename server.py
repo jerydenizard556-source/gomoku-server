@@ -581,7 +581,7 @@ async def handler(ws):
                     acct=connected_accounts.get(ws)
                     try:
                         if not acct: raise tournament.TournamentError('Konekte pou enskri.')
-                        result=await asyncio.to_thread(tournament.register_entry,str(d.get('tournament_id') or ''),str(acct['player_id']),str(d.get('payment_reference') or ''),str(d.get('proof_reference') or ''),bool(d.get('terms_accepted',False)))
+                        result=await asyncio.to_thread(tournament.register_entry,str(d.get('tournament_id') or ''),str(acct['player_id']),str(d.get('payment_reference') or ''),str(d.get('proof_reference') or ''),d.get('terms_accepted') is True)
                         await send(ws,{'type':'tournament_register_result',**result})
                     except Exception as ex: await send(ws,{'type':'tournament_register_result','ok':False,'message':str(ex)})
                     continue
@@ -775,7 +775,7 @@ def health_response(connection, request):
                     terms = (q.get('terms_accepted') or [''])[0].lower() == 'true'
                     if not terms:
                         raise tournament.TournamentError('Ou dwe aksepte kondisyon tounwa a.')
-                    result = tournament.register_entry(tournament_id, player_id, online_checkout=True)
+                    result = tournament.register_entry(tournament_id, player_id, terms_accepted=True, online_checkout=True)
                     with tournament._db() as conn:
                         row = tournament._get_tournament(conn, tournament_id)
                     result.update({'amount': str(row['entry_fee']), 'currency': row['currency'],
