@@ -297,7 +297,8 @@ async def voice_join(ws, c):
     if n is None and not is_spec: return
     if r.get('tournament_id') and is_spec:
         acct=connected_accounts.get(ws,{})
-        allowed=await asyncio.to_thread(tournament.can_spectator_use_mic,str(r.get('tournament_id')),str(acct.get('player_id') or ''))        if not allowed: return await send(ws,{'type':'tournament_voice_access','approved':False,'message':'Mande pèmisyon òganizatè a anvan ou pale.'})
+        allowed=await asyncio.to_thread(tournament.can_spectator_use_mic,str(r.get('tournament_id')),str(acct.get('player_id') or ''))
+        if not allowed: return await send(ws,{'type':'tournament_voice_access','approved':False,'message':'Mande pèmisyon òganizatè a anvan ou pale.'})
     peers=[]
     for pn, player in r['players'].items():
         other=player.get('socket')
@@ -596,7 +597,8 @@ async def handler(ws):
                     continue
                 elif t=='tournament_delete':
                     acct=connected_accounts.get(ws)
-                    try:                        if not acct: raise tournament.TournamentError('Konekte pou efase yon tournoi.')
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte pou efase yon tournoi.')
                         result=await asyncio.to_thread(tournament.delete_tournament,str(d.get('tournament_id') or ''),str(acct['player_id']))
                         await send(ws,{'type':'tournament_delete_result',**result})
                     except Exception as ex: await send(ws,{'type':'tournament_delete_result','ok':False,'message':str(ex)})
