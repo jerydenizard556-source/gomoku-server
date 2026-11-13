@@ -593,8 +593,13 @@ async def handler(ws):
                     except Exception as ex: await send(ws,{'type':'tournament_error','message':str(ex)})
                     continue
                 elif t=='tournament_create':
-                    await send(ws,{'type':'tournament_create_result','ok':False,
-                        'message':'Pou sekirite, ou dwe peye frè platfòm nan anvan kreyasyon tournoi a.'})
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte sou kont ou pou kreye tournoi a.')
+                        if os.getenv('GOMOKU_MODE','live').strip().lower() != 'test': raise tournament.TournamentError('Kreyasyon dirèk pa disponib. Sèvi ak peman platfòm nan.')
+                        result=await asyncio.to_thread(tournament.create_tournament,str(acct['player_id']),str(d.get('title') or ''),0,'free',0,int(d.get('board_size') or 15),int(d.get('duration_seconds') or 600),{},'USD',int(d.get('max_participants') or 100))
+                        await send(ws,{'type':'tournament_create_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_create_result','ok':False,'message':str(ex)})
                     continue
                 elif t=='tournament_delete':
                     acct=connected_accounts.get(ws)
