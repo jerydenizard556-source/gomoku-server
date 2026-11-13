@@ -195,6 +195,17 @@ def create_tournament(
         raise TournamentError("Maximum participants must be a whole number.")
     if capacity < 2 or capacity > 10000:
         raise TournamentError("Maximum participants must be between 2 and 10,000.")
+    if os.getenv("GOMOKU_MODE", "live").strip().lower() == "test":
+        if board_size not in BOARD_SIZES or duration_seconds not in DURATIONS:
+            raise TournamentError("Invalid test tournament board or duration.")
+        tid = "tourn_" + secrets.token_urlsafe(12).replace("-", "_")
+        now = int(time.time())
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO gomoku_tournaments (tournament_id,organizer_id,title,entry_fee,currency,payment_method,commission_percent,board_size,duration_seconds,prize_shares,status,created_at,max_participants,platform_creation_fee,platform_creation_rate,platform_completion_fee,platform_completion_rate,platform_completion_fee_status) VALUES (%s,%s,%s,0,'USD','free',0,%s,%s,'{}'::jsonb,'registration',%s,%s,0,0,0,0,'not_due')",
+                (tid,str(organizer_id),title.strip(),int(board_size),int(duration_seconds),now,capacity)
+            )
+        return {"ok":True,"tournament_id":tid,"status":"registration","mode":"test","entry_fee":"0.00","currency":"TEST","payment_method":"free","commission_percent":"0","prize_shares":{},"max_participants":capacity,"platform_creation_fee":"0.00","board_size":board_size,"duration_seconds":duration_seconds}
     creation_rate = Decimal("3.00")
     expected_gross = fee * capacity
     creation_fee = (expected_gross * creation_rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -304,6 +315,16 @@ def register_entry(
         t = _get_tournament(conn, tournament_id)
         if t["status"] != "registration":
             raise TournamentError("Registration is closed.")
+        if os.getenv("GOMOKU_MODE","live").strip().lower()=="test" and t["payment_method"]=="free":
+            count=conn.execute("SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",(tournament_id,)).fetchone()["n"]
+            if int(count or 0)>=int(t.get("max_participants") or 100):
+                raise TournamentError("Tournament registration is full.")
+            eid="entry_"+secrets.token_urlsafe(12).replace("-","_")
+            try:
+                conn.execute("INSERT INTO gomoku_tournament_entries (entry_id,tournament_id,player_id,payment_status,paid_amount,created_at,verified_at,terms_accepted_at,terms_snapshot) VALUES (%s,%s,%s,'verified',0,%s,%s,%s,%s::jsonb)",(eid,tournament_id,str(player_id),int(time.time()),int(time.time()),int(time.time()),json.dumps({"accepted":True,"mode":"test"})))
+            except psycopg.errors.UniqueViolation:
+                raise TournamentError("Player already registered for this tournament.")
+            return {"ok":True,"entry_id":eid,"payment_status":"verified","seat_confirmed":True,"mode":"test"}
         if not proof_data and t["payment_method"] in {"moncash", "natcash"} and not online_checkout:
             raise TournamentError("A payment proof reference is required.")
         current = conn.execute(
