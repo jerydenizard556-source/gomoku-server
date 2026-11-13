@@ -873,6 +873,24 @@ def register_entry(tournament_id: str, player_id: str,
         current_entries=conn.execute("SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",(tournament_id,)).fetchone()["n"]
         if int(current_entries or 0)>=int(t.get("max_participants") or 100):
             raise TournamentError("Tournoi sa a rive nan kantite maksimòm jwè li ka resevwa.")
+        # TEST tournaments are free: confirm entries immediately, with no payment review.
+        if os.getenv("GOMOKU_MODE", "live").strip().lower() == "test" and str(t["payment_method"]).lower() == "free":
+            accepted_at = int(time.time())
+            entry_id = "entry_" + secrets.token_urlsafe(12).replace("-", "_")
+            try:
+                conn.execute(
+                    """INSERT INTO gomoku_tournament_entries
+                       (entry_id,tournament_id,player_id,payment_reference,proof_data,
+                        payment_status,paid_amount,created_at,verified_at,terms_accepted_at,terms_snapshot)
+                       VALUES (%s,%s,%s,NULL,NULL,'verified',0,%s,%s,%s,%s::jsonb)""",
+                    (entry_id,tournament_id,str(player_id),accepted_at,accepted_at,accepted_at,
+                     json.dumps({"version":"gomoku-tournament-terms-v1","accepted":True,
+                                 "accepted_at":accepted_at,"mode":"test","payment":"free"})),
+                )
+            except psycopg.errors.UniqueViolation:
+                raise TournamentError("Player already registered for this tournament.")
+            return {"ok":True,"entry_id":entry_id,"payment_status":"verified",
+                    "seat_confirmed":True,"terms_accepted":True,"mode":"test"}
         if not proof_data and t["payment_method"] in {"moncash","natcash"} and not online_checkout:
             raise TournamentError("A payment proof image is required for this payment method.")
         accepted_at=int(time.time())
