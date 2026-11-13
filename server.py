@@ -581,6 +581,7 @@ async def ttt_move(ws,code_value,index):
 
 async def handler(ws):
     try:
+        await send(ws,{'type':'server_config','gomoku_mode':os.getenv('GOMOKU_MODE','live').strip().lower()})
         async for raw in ws:
             try:d=json.loads(raw)
             except: await send(ws,{'type':'error','message':'JSON invalid.'});continue
