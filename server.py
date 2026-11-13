@@ -410,7 +410,17 @@ async def disconnect(ws):
         p['disconnected_at']=time.monotonic(); p['disconnect_marker']=marker
         await broadcast(r)
         if not r.get('game_over') and len(r.get('players',{}))==2:
-            asyncio.create_task(abandon_if_disconnected(room_code,n,marker))
+            if r.get('tournament_match_id'):
+                other=2 if n==1 else 1
+                if r.get('players',{}).get(other,{}).get('connected'):
+                    r['game_over']=True; r['winner']=other; r['draw']=False; r['abandonment']=True
+                    r['winning_line']=None; r['rematch_request']=None; r['undo_request']=None
+                    r['black_score']+=int(other==1); r['red_score']+=int(other==2)
+                    await record_result(r)
+                    await sync_tournament_result(r)
+                    await broadcast(r)
+            else:
+                asyncio.create_task(abandon_if_disconnected(room_code,n,marker))
 
 async def timer_loop():
     while True:
@@ -676,7 +686,12 @@ async def handler(ws):
                                 rooms[room_code]=room
                         player_no=1 if str(acct['player_id'])==str(match['player1_id']) else 2
                         old=room['players'].get(player_no)
-                        if old and old.get('socket') is not ws: raise tournament.TournamentError('Ou deja konekte nan match la.')
+                        if old and old.get('socket') is not ws:
+                            previous_socket=old.get('socket')
+                            room['players'][player_no]={'socket':ws,'connected':True,'session_token':None,'username':acct['username'],'player_id':acct['player_id']}
+                            if previous_socket is not None:
+                                try: await previous_socket.close(code=4001,reason='Nouvo koneksyon jwè a')
+                                except Exception: pass
                         tok=session()
                         room['players'][player_no]={'socket':ws,'connected':True,'session_token':tok,'username':acct['username'],'player_id':acct['player_id']}
                         await asyncio.to_thread(tournament.attach_match_room,tid,mid,room_code,str(acct['player_id']))
