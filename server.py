@@ -3,6 +3,15 @@ from urllib.parse import urlsplit, parse_qs
 import websockets, psycopg
 import tournament_extension as tournament
 from websockets.http11 import Headers, Response
+def get_rtc_ice_servers():
+    servers=[{'urls':'stun:stun.l.google.com:19302'},{'urls':'stun:stun1.l.google.com:19302'}]
+    turn_urls=[u.strip() for u in os.environ.get('TURN_URLS','').split(',') if u.strip()]
+    turn_username=os.environ.get('TURN_USERNAME','').strip()
+    turn_credential=os.environ.get('TURN_CREDENTIAL','').strip()
+    if turn_urls and turn_username and turn_credential:
+        servers.append({'urls':turn_urls,'username':turn_username,'credential':turn_credential})
+    return servers
+
 HOST='0.0.0.0'; PORT=int(os.environ.get('PORT','10000')); BOARD_SIZE=20; START_TIME=600; RECONNECT_GRACE_SECONDS=45; INVITATION_TTL_SECONDS=90
 DATABASE_URL=os.environ.get('DATABASE_URL'); TOURNAMENT_PAYMENT_SECRET=os.environ.get('TOURNAMENT_PAYMENT_SECRET','').strip(); db=None
 if DATABASE_URL:
@@ -302,10 +311,10 @@ async def camera_join(ws, c):
         if other is not None and other is not ws: peers.append({'peer_id':str(id(other)),'make_offer':id(ws)<id(other)})
     for other in list(r['spectators']):
         if other is not ws: peers.append({'peer_id':str(id(other)),'make_offer':id(ws)<id(other)})
-    await send(ws,{'type':'camera_peer_list','room':c,'peers':peers})
+    await send(ws,{'type':'camera_peer_list','room':c,'peers':peers,'ice_servers':get_rtc_ice_servers()})
     for player in r['players'].values():
         other=player.get('socket')
-        if other is not None and other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws)})
+        if other is not None and other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws),'ice_servers':get_rtc_ice_servers()})
     for other in list(r['spectators']):
         if other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws)})
 
@@ -354,11 +363,11 @@ async def voice_join(ws, c):
     for other in list(r['spectators']):
         if other is not ws:
             peers.append({'peer_id':str(id(other)),'make_offer':id(ws)<id(other),'muted':muted_map.get(str(id(other)),True)})
-    await send(ws,{'type':'voice_peer_list','room':c,'peers':peers})
+    await send(ws,{'type':'voice_peer_list','room':c,'peers':peers,'ice_servers':get_rtc_ice_servers()})
     for peer in list(r['players'].values()):
         other=peer.get('socket')
         if other is not None and other is not ws:
-            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws),'muted':muted_map.get(str(id(ws)),True)})
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws),'muted':muted_map.get(str(id(ws)),True),'ice_servers':get_rtc_ice_servers()})
     for other in list(r['spectators']):
         if other is not ws:
             await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws),'muted':muted_map.get(str(id(ws)),True)})
