@@ -299,15 +299,15 @@ async def camera_join(ws, c):
     peers=[]
     for player in r['players'].values():
         other=player.get('socket')
-        if other is not None and other is not ws: peers.append({'peer_id':str(id(other))})
+        if other is not None and other is not ws: peers.append({'peer_id':str(id(other)),'make_offer':id(ws)<id(other)})
     for other in list(r['spectators']):
-        if other is not ws: peers.append({'peer_id':str(id(other))})
+        if other is not ws: peers.append({'peer_id':str(id(other)),'make_offer':id(ws)<id(other)})
     await send(ws,{'type':'camera_peer_list','room':c,'peers':peers})
     for player in r['players'].values():
         other=player.get('socket')
-        if other is not None and other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws))})
+        if other is not None and other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws)})
     for other in list(r['spectators']):
-        if other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws))})
+        if other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws)})
 
 async def camera_leave(ws, c):
     c=str(c or '').upper().strip()
@@ -345,15 +345,12 @@ async def voice_join(ws, c):
     if c not in rooms: return
     r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
-    if r.get('tournament_id') and is_spec:
-        acct=connected_accounts.get(ws,{})
-        allowed=await asyncio.to_thread(tournament.can_spectator_use_mic,str(r.get('tournament_id')),str(acct.get('player_id') or ''))
-        if not allowed: return await send(ws,{'type':'tournament_voice_access','approved':False,'message':'Mande pèmisyon òganizatè a anvan ou pale.'})
     peers=[]
+    muted_map=r.setdefault('voice_muted',{})
     for pn, player in r['players'].items():
         other=player.get('socket')
         if other is not None and other is not ws:
-            peers.append({'peer_id':str(id(other))})
+            peers.append({'peer_id':str(id(other)),'make_offer':id(ws)<id(other),'muted':muted_map.get(str(id(other)),True)})
     for other in list(r['spectators']):
         if other is not ws:
             peers.append({'peer_id':str(id(other))})
@@ -361,10 +358,23 @@ async def voice_join(ws, c):
     for peer in list(r['players'].values()):
         other=peer.get('socket')
         if other is not None and other is not ws:
-            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws),'muted':muted_map.get(str(id(ws)),True)})
     for other in list(r['spectators']):
         if other is not ws:
-            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws))})
+            await send(other,{'type':'voice_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws),'muted':muted_map.get(str(id(ws)),True)})
+
+async def voice_mute(ws, c, muted):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return
+    r=rooms[c]
+    if find(r,ws) is None and ws not in r['spectators']: return
+    peer_id=str(id(ws)); state=bool(muted)
+    r.setdefault('voice_muted',{})[peer_id]=state
+    message={'type':'voice_mute_state','room':c,'peer_id':peer_id,'muted':state}
+    targets=[p.get('socket') for p in r['players'].values() if p.get('socket') is not None]
+    targets.extend(list(r['spectators']))
+    for target in targets:
+        await send(target,message)
 
 async def voice_leave(ws, c):
     c=str(c or '').upper().strip()
@@ -385,10 +395,7 @@ async def voice_signal(ws, c, to, signal_type, payload):
     if c not in rooms: return
     r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
-    if r.get('tournament_id') and is_spec:
-        acct=connected_accounts.get(ws,{})
-        allowed=await asyncio.to_thread(tournament.can_spectator_use_mic,str(r.get('tournament_id')),str(acct.get('player_id') or ''))
-        if not allowed: return
+
     signal_type=str(signal_type or '')
     if signal_type not in ('description','ice'): return
     try: target_id=int(to)
@@ -523,7 +530,6 @@ async def online_players(ws):
 invitations={}
 async def invite_player(ws, target_id, duration, size):
     acct=connected_accounts.get(ws)
-    if active_room_for(ws): return await send(ws,{'type':'invite_result','success':False,'message':'Fini oswa kite match ou ye a anvan ou envite yon lòt jwè.'})
     if not acct: return await send(ws,{'type':'invite_result','success':False,'message':'Connecte-toi pour inviter un joueur.'})
     try: target_id=int(target_id); duration=max(1,min(30,int(duration))); size=max(13,min(20,int(size)))
     except: return await send(ws,{'type':'invite_result','success':False,'message':'Paramètres de défi invalides.'})
@@ -558,9 +564,12 @@ async def invite_response(ws, invitation_id, accepted):
         return await send(ws,{'type':'invite_result','success':True,'message':'Invitation refusée.'})
     if inviter not in connected_accounts or invitee not in connected_accounts:
         return await send(ws,{'type':'invite_result','success':False,'message':'Un joueur s’est déconnecté.'})
-    if active_room_for(inviter) or active_room_for(invitee):
-        await send(inviter,{'type':'invite_result','success':False,'message':'Youn nan jwè yo deja nan yon match.'})
-        return await send(invitee,{'type':'invite_result','success':False,'message':'Youn nan jwè yo deja nan yon match.'})
+    # Aksepte yon envitasyon pandan yon lòt match ap fini ansyen match la kòm abandon.
+    for participant in (inviter, invitee):
+        previous_room=active_room_for(participant)
+        if previous_room:
+            await leave_match(participant, previous_room)
+        remove_spec(participant)
     c=code(); r=room_base(inv['size'],inv['duration']); rooms[c]=r
     p1=connected_accounts[inviter]; p2=connected_accounts[invitee]; t1=session(); t2=session()
     r['players']={1:{'socket':inviter,'connected':True,'session_token':t1,'username':p1['username'],'player_id':p1['player_id']},2:{'socket':invitee,'connected':True,'session_token':t2,'username':p2['username'],'player_id':p2['player_id']}}
@@ -846,6 +855,7 @@ async def handler(ws):
                 elif t=='camera_leave':await camera_leave(ws,d.get('room'))
                 elif t=='camera_signal':await camera_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
                 elif t=='leave_match':await leave_match(ws,d.get('room'))
+                elif t=='voice_mute':await voice_mute(ws,d.get('room'),d.get('muted',True))
                 elif t=='voice_join':await voice_join(ws,d.get('room'))
                 elif t=='voice_leave':await voice_leave(ws,d.get('room'))
                 elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
