@@ -353,7 +353,7 @@ async def voice_join(ws, c):
             peers.append({'peer_id':str(id(other)),'make_offer':id(ws)<id(other),'muted':muted_map.get(str(id(other)),True)})
     for other in list(r['spectators']):
         if other is not ws:
-            peers.append({'peer_id':str(id(other))})
+            peers.append({'peer_id':str(id(other)),'make_offer':id(ws)<id(other),'muted':muted_map.get(str(id(other)),True)})
     await send(ws,{'type':'voice_peer_list','room':c,'peers':peers})
     for peer in list(r['players'].values()):
         other=peer.get('socket')
@@ -543,9 +543,6 @@ async def invite_player(ws, target_id, duration, size):
         if a.get('player_id')==target_id and client is not ws:
             target_ws=client
     if not target_ws: return await send(ws,{'type':'invite_result','success':False,'message':'Ce joueur n’est plus connecté.'})
-    for r in rooms.values():
-        if any(p.get('player_id')==target_id and not r.get('game_over') for p in r['players'].values()):
-            return await send(ws,{'type':'invite_result','success':False,'message':'Ce joueur est déjà en partie.'})
     iid=secrets.token_urlsafe(12)
     invitations[iid]={'from_ws':ws,'to_ws':target_ws,'from':acct,'to_id':target_id,'duration':duration*60,'size':size,'created':time.monotonic()}
     await send(target_ws,{'type':'game_invite','invitation_id':iid,'from_username':acct.get('username'),'duration_minutes':duration,'board_size':size})
