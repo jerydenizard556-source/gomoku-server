@@ -316,7 +316,7 @@ async def camera_join(ws, c):
         other=player.get('socket')
         if other is not None and other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws),'ice_servers':get_rtc_ice_servers()})
     for other in list(r['spectators']):
-        if other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws)})
+        if other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws)),'make_offer':id(other)<id(ws),'ice_servers':get_rtc_ice_servers()})
 
 async def camera_leave(ws, c):
     c=str(c or '').upper().strip()
