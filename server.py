@@ -335,7 +335,7 @@ async def camera_signal(ws, c, to, signal_type, payload):
     if c not in rooms: return
     r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
-    if str(signal_type or '') not in ('description','ice'): return
+    if str(signal_type or '') not in ('description','ice','ready'): return
     try: target_id=int(to)
     except (TypeError,ValueError): return
     targets=[]
