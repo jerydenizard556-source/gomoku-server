@@ -195,6 +195,17 @@ def create_tournament(
         raise TournamentError("Maximum participants must be a whole number.")
     if capacity < 2 or capacity > 10000:
         raise TournamentError("Maximum participants must be between 2 and 10,000.")
+    if os.getenv("GOMOKU_MODE", "live").strip().lower() == "test":
+        if board_size not in BOARD_SIZES or duration_seconds not in DURATIONS:
+            raise TournamentError("Invalid test tournament board or duration.")
+        tid = "tourn_" + secrets.token_urlsafe(12).replace("-", "_")
+        now = int(time.time())
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO gomoku_tournaments (tournament_id,organizer_id,title,entry_fee,currency,payment_method,commission_percent,board_size,duration_seconds,prize_shares,status,created_at,max_participants,platform_creation_fee,platform_creation_rate,platform_completion_fee,platform_completion_rate,platform_completion_fee_status) VALUES (%s,%s,%s,0,'USD','free',0,%s,%s,'{}'::jsonb,'registration',%s,%s,0,0,0,0,'not_due')",
+                (tid,str(organizer_id),title.strip(),int(board_size),int(duration_seconds),now,capacity)
+            )
+        return {"ok":True,"tournament_id":tid,"status":"registration","mode":"test","entry_fee":"0.00","currency":"TEST","payment_method":"free","commission_percent":"0","prize_shares":{},"max_participants":capacity,"platform_creation_fee":"0.00","board_size":board_size,"duration_seconds":duration_seconds}
     creation_rate = Decimal("3.00")
     expected_gross = fee * capacity
     creation_fee = (expected_gross * creation_rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -285,13 +296,17 @@ def register_entry(
     player_id: str,
     payment_reference: str = "",
     proof_data: str = "",
+    terms_accepted: bool = False,
     online_checkout: bool = False,
 ) -> dict:
     """
     Create a PENDING entry. No seat is reserved/confirmed until payment verifies.
+    terms_accepted must be explicitly acknowledged before an entry is created.
     online_checkout is set only by the authenticated internal Wallet bridge.
     proof_data should be a private storage key, not a public image URL.
     """
+    if terms_accepted is not True:
+        raise TournamentError("Ou dwe aksepte kondisyon tounwa a anvan ou enskri.")
     if not player_id:
         raise TournamentError("Player ID is required.")
     if len(proof_data) > 500:
@@ -300,6 +315,16 @@ def register_entry(
         t = _get_tournament(conn, tournament_id)
         if t["status"] != "registration":
             raise TournamentError("Registration is closed.")
+        if os.getenv("GOMOKU_MODE","live").strip().lower()=="test" and t["payment_method"]=="free":
+            count=conn.execute("SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",(tournament_id,)).fetchone()["n"]
+            if int(count or 0)>=int(t.get("max_participants") or 100):
+                raise TournamentError("Tournament registration is full.")
+            eid="entry_"+secrets.token_urlsafe(12).replace("-","_")
+            try:
+                conn.execute("INSERT INTO gomoku_tournament_entries (entry_id,tournament_id,player_id,payment_status,paid_amount,created_at,verified_at,terms_accepted_at,terms_snapshot) VALUES (%s,%s,%s,'verified',0,%s,%s,%s,%s::jsonb)",(eid,tournament_id,str(player_id),int(time.time()),int(time.time()),int(time.time()),json.dumps({"accepted":True,"mode":"test"})))
+            except psycopg.errors.UniqueViolation:
+                raise TournamentError("Player already registered for this tournament.")
+            return {"ok":True,"entry_id":eid,"payment_status":"verified","seat_confirmed":True,"mode":"test"}
         if not proof_data and t["payment_method"] in {"moncash", "natcash"} and not online_checkout:
             raise TournamentError("A payment proof reference is required.")
         current = conn.execute(
@@ -313,10 +338,11 @@ def register_entry(
             conn.execute(
                 """INSERT INTO gomoku_tournament_entries
                 (entry_id,tournament_id,player_id,payment_reference,proof_data,
-                 payment_status,paid_amount,created_at)
-                VALUES (%s,%s,%s,%s,%s,'pending',%s,%s)""",
+                 payment_status,paid_amount,created_at,terms_accepted_at,terms_snapshot)
+                VALUES (%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s::jsonb)""",
                 (entry_id, tournament_id, player_id, payment_reference or None,
-                 proof_data or None, t["entry_fee"], int(time.time())),
+                 proof_data or None, t["entry_fee"], int(time.time()), int(time.time()),
+                 json.dumps({"version":"gomoku-tournament-terms-v1","accepted":True})),
             )
         except psycopg.errors.UniqueViolation:
             raise TournamentError("Player already registered for this tournament.")
@@ -834,10 +860,10 @@ def can_spectator_use_mic(tournament_id: str, player_id: str) -> bool:
 # Security/UX refinements for the integrated server.
 def register_entry(tournament_id: str, player_id: str,
                    payment_reference: str = "", proof_data: str = "",
-                   terms_accepted: bool = False) -> dict:
+                   terms_accepted: bool = False, online_checkout: bool = False) -> dict:
     if not player_id: raise TournamentError("Player ID is required.")
-    if not terms_accepted:
-        raise TournamentError("Player must accept the tournament terms before registering.")
+    if terms_accepted is not True:
+        raise TournamentError("Ou dwe aksepte kondisyon tounwa a anvan ou enskri.")
     if len(proof_data)>900000: raise TournamentError("Payment proof image exceeds the 650 KB limit.")
     with _db() as conn:
         # Lock the tournament row so its terms cannot race with registration/deletion.
@@ -847,13 +873,33 @@ def register_entry(tournament_id: str, player_id: str,
         current_entries=conn.execute("SELECT COUNT(*) AS n FROM gomoku_tournament_entries WHERE tournament_id=%s",(tournament_id,)).fetchone()["n"]
         if int(current_entries or 0)>=int(t.get("max_participants") or 100):
             raise TournamentError("Tournoi sa a rive nan kantite maksimòm jwè li ka resevwa.")
-        if not proof_data and t["payment_method"] in {"moncash","natcash"}:
+        # TEST tournaments are free: confirm entries immediately, with no payment review.
+        if os.getenv("GOMOKU_MODE", "live").strip().lower() == "test" and str(t["payment_method"]).lower() == "free":
+            accepted_at = int(time.time())
+            entry_id = "entry_" + secrets.token_urlsafe(12).replace("-", "_")
+            try:
+                conn.execute(
+                    """INSERT INTO gomoku_tournament_entries
+                       (entry_id,tournament_id,player_id,payment_reference,proof_data,
+                        payment_status,paid_amount,created_at,verified_at,terms_accepted_at,terms_snapshot)
+                       VALUES (%s,%s,%s,NULL,NULL,'verified',0,%s,%s,%s,%s::jsonb)""",
+                    (entry_id,tournament_id,str(player_id),accepted_at,accepted_at,accepted_at,
+                     json.dumps({"version":"gomoku-tournament-terms-v1","accepted":True,
+                                 "accepted_at":accepted_at,"mode":"test","payment":"free"})),
+                )
+            except psycopg.errors.UniqueViolation:
+                raise TournamentError("Player already registered for this tournament.")
+            return {"ok":True,"entry_id":entry_id,"payment_status":"verified",
+                    "seat_confirmed":True,"terms_accepted":True,"mode":"test"}
+        if not proof_data and t["payment_method"] in {"moncash","natcash"} and not online_checkout:
             raise TournamentError("A payment proof image is required for this payment method.")
         accepted_at=int(time.time())
         terms_snapshot={
+            "version":"gomoku-tournament-terms-v1","accepted":True,"accepted_at":accepted_at,
             "title":t["title"],"entry_fee":str(t["entry_fee"]),"currency":t["currency"],
             "payment_method":t["payment_method"],"commission_percent":str(t["commission_percent"]),
-            "prize_shares":t["prize_shares"],"max_participants":int(t.get("max_participants") or 100),"platform_creation_fee":str(t.get("platform_creation_fee") or "0.00"),"accepted_at":accepted_at
+            "prize_shares":t["prize_shares"],"max_participants":int(t.get("max_participants") or 100),
+            "platform_creation_fee":str(t.get("platform_creation_fee") or "0.00")
         }
         entry_id="entry_"+secrets.token_urlsafe(12).replace("-","_")
         try:

@@ -20,6 +20,38 @@ except Exception as tournament_db_error:
     print('Tournament schema initialization error:',repr(tournament_db_error))
 
 
+def ensure_db_connection():
+    """Verify the Neon connection and reconnect if it was closed or went stale."""
+    global db
+    if not DATABASE_URL:
+        return None
+    try:
+        if db is None or db.closed:
+            raise psycopg.OperationalError('Database connection is closed')
+        with db.cursor() as cur:
+            cur.execute('SELECT 1')
+            cur.fetchone()
+        return db
+    except Exception as first_error:
+        try:
+            if db is not None:
+                db.close()
+        except Exception:
+            pass
+        try:
+            db = psycopg.connect(DATABASE_URL, connect_timeout=10)
+            db.autocommit = True
+            with db.cursor() as cur:
+                cur.execute('SELECT 1')
+                cur.fetchone()
+            print('PostgreSQL connection restored after stale connection.')
+            return db
+        except Exception as reconnect_error:
+            print('Database reconnect error:', repr(reconnect_error))
+            db = None
+            return None
+
+
 def hash_password(p):
     s=secrets.token_bytes(16); h=hashlib.pbkdf2_hmac('sha256',p.encode(),s,200000); return f'pbkdf2_sha256$200000${s.hex()}${h.hex()}'
 def verify_password(p,x):
@@ -45,6 +77,7 @@ async def send(ws,d):
     try: await ws.send(json.dumps(d))
     except: pass
 async def register(ws,u,e,p,pc):
+    db = ensure_db_connection()
     if db is None: return await send(ws,{'type':'register_result','success':False,'message':'Database pa disponib.'})
     u=str(u or '').strip(); e=str(e or '').strip().lower(); p=str(p or ''); pc=str(pc or '')
     if not valid_username(u): return await send(ws,{'type':'register_result','success':False,'message':'Pseudo a dwe genyen 3-50 karaktè epi sèlman lèt, chif oswa _.'})
@@ -60,6 +93,7 @@ async def register(ws,u,e,p,pc):
         await send(ws,{'type':'register_result','success':True,'message':'Kont lan kreye avèk siksè.','player_id':pid,'username':u,'email':e,'account_token':t,'points':0,'wins':0,'losses':0,'draws':0,'level':1})
     except Exception as ex: print('Register error:',repr(ex)); await send(ws,{'type':'register_result','success':False,'message':'Erè pandan kreyasyon kont lan.'})
 async def login(ws,l,p):
+    db = ensure_db_connection()
     if db is None: return await send(ws,{'type':'login_result','success':False,'message':'Database pa disponib.'})
     l=str(l or '').strip(); p=str(p or '')
     if not l or not p: return await send(ws,{'type':'login_result','success':False,'message':'Tanpri ranpli tout chan yo.'})
@@ -426,7 +460,17 @@ async def disconnect(ws):
         p['disconnected_at']=time.monotonic(); p['disconnect_marker']=marker
         await broadcast(r)
         if not r.get('game_over') and len(r.get('players',{}))==2:
-            asyncio.create_task(abandon_if_disconnected(room_code,n,marker))
+            if r.get('tournament_match_id'):
+                other=2 if n==1 else 1
+                if r.get('players',{}).get(other,{}).get('connected'):
+                    r['game_over']=True; r['winner']=other; r['draw']=False; r['abandonment']=True
+                    r['winning_line']=None; r['rematch_request']=None; r['undo_request']=None
+                    r['black_score']+=int(other==1); r['red_score']+=int(other==2)
+                    await record_result(r)
+                    await sync_tournament_result(r)
+                    await broadcast(r)
+            else:
+                asyncio.create_task(abandon_if_disconnected(room_code,n,marker))
 
 async def timer_loop():
     while True:
@@ -597,6 +641,7 @@ async def ttt_move(ws,code_value,index):
 
 async def handler(ws):
     try:
+        await send(ws,{'type':'server_config','gomoku_mode':os.getenv('GOMOKU_MODE','live').strip().lower()})
         async for raw in ws:
             try:d=json.loads(raw)
             except: await send(ws,{'type':'error','message':'JSON invalid.'});continue
@@ -608,8 +653,13 @@ async def handler(ws):
                     except Exception as ex: await send(ws,{'type':'tournament_error','message':str(ex)})
                     continue
                 elif t=='tournament_create':
-                    await send(ws,{'type':'tournament_create_result','ok':False,
-                        'message':'Pou sekirite, ou dwe peye frè platfòm nan anvan kreyasyon tournoi a.'})
+                    acct=connected_accounts.get(ws)
+                    try:
+                        if not acct: raise tournament.TournamentError('Konekte sou kont ou pou kreye tournoi a.')
+                        if os.getenv('GOMOKU_MODE','live').strip().lower() != 'test': raise tournament.TournamentError('Kreyasyon dirèk pa disponib. Sèvi ak peman platfòm nan.')
+                        result=await asyncio.to_thread(tournament.create_tournament,str(acct['player_id']),str(d.get('title') or ''),0,'free',0,int(d.get('board_size') or 15),int(d.get('duration_seconds') or 600),{},'USD',int(d.get('max_participants') or 100))
+                        await send(ws,{'type':'tournament_create_result',**result})
+                    except Exception as ex: await send(ws,{'type':'tournament_create_result','ok':False,'message':str(ex)})
                     continue
                 elif t=='tournament_delete':
                     acct=connected_accounts.get(ws)
@@ -631,7 +681,7 @@ async def handler(ws):
                     acct=connected_accounts.get(ws)
                     try:
                         if not acct: raise tournament.TournamentError('Konekte pou enskri.')
-                        result=await asyncio.to_thread(tournament.register_entry,str(d.get('tournament_id') or ''),str(acct['player_id']),str(d.get('payment_reference') or ''),str(d.get('proof_reference') or ''),bool(d.get('terms_accepted',False)))
+                        result=await asyncio.to_thread(tournament.register_entry,str(d.get('tournament_id') or ''),str(acct['player_id']),str(d.get('payment_reference') or ''),str(d.get('proof_reference') or ''),d.get('terms_accepted') is True)
                         await send(ws,{'type':'tournament_register_result',**result})
                     except Exception as ex: await send(ws,{'type':'tournament_register_result','ok':False,'message':str(ex)})
                     continue
@@ -686,7 +736,12 @@ async def handler(ws):
                                 rooms[room_code]=room
                         player_no=1 if str(acct['player_id'])==str(match['player1_id']) else 2
                         old=room['players'].get(player_no)
-                        if old and old.get('socket') is not ws: raise tournament.TournamentError('Ou deja konekte nan match la.')
+                        if old and old.get('socket') is not ws:
+                            previous_socket=old.get('socket')
+                            room['players'][player_no]={'socket':ws,'connected':True,'session_token':None,'username':acct['username'],'player_id':acct['player_id']}
+                            if previous_socket is not None:
+                                try: await previous_socket.close(code=4001,reason='Nouvo koneksyon jwè a')
+                                except Exception: pass
                         tok=session()
                         room['players'][player_no]={'socket':ws,'connected':True,'session_token':tok,'username':acct['username'],'player_id':acct['player_id']}
                         await asyncio.to_thread(tournament.attach_match_room,tid,mid,room_code,str(acct['player_id']))
@@ -802,20 +857,33 @@ async def handler(ws):
 def health_response(connection, request):
     # Render health probes and private Wallet-to-game payment callbacks.
     path = urlsplit(request.path).path
-    if request.headers.get('Upgrade', '').lower() != 'websocket' and request.method in ('GET', 'HEAD'):
+    if request.headers.get('Upgrade', '').lower() != 'websocket':
         if path in ('/', '/health', '/healthz'):
             body = b'{"ok":true,"service":"MR_Jery_Morpion_Game_Server","websocket":true}'
-            if request.method == 'HEAD':
-                body = b''
             return Response(200, 'OK', Headers([('Content-Type','application/json; charset=utf-8'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
-        if path in ('/internal/tournament/entry', '/internal/tournament/payment-verified', '/internal/tournament/creation-paid'):
+        if path in ('/internal/account/resolve', '/internal/tournament/entry', '/internal/tournament/payment-verified', '/internal/tournament/creation-paid'):
             supplied = request.headers.get('X-Gomoku-Secret', '')
             if not TOURNAMENT_PAYMENT_SECRET or not hmac.compare_digest(supplied, TOURNAMENT_PAYMENT_SECRET):
                 body = b'{"ok":false,"error":"Unauthorized"}'
                 return Response(401, 'Unauthorized', Headers([('Content-Type','application/json'), ('Content-Length', str(len(body))), ('Cache-Control','no-store')]), body)
             q = parse_qs(urlsplit(request.path).query)
             try:
-                if path == '/internal/tournament/creation-paid':
+                if path == '/internal/account/resolve':
+                    token_value = (q.get('account_token') or [''])[0]
+                    if not token_value or len(token_value) < 20 or db is None:
+                        raise tournament.TournamentError('Kont jwèt la pa valab.')
+                    c = db.cursor()
+                    c.execute('''SELECT p.id,p.username,p.email
+                                 FROM account_sessions s
+                                 JOIN players p ON p.id=s.player_id
+                                 WHERE s.token_hash=%s''', (token_hash(token_value),))
+                    row = c.fetchone()
+                    c.close()
+                    if not row:
+                        raise tournament.TournamentError('Sesyon kont jwèt la pa jwenn.')
+                    result = {'ok': True, 'game_user_id': str(row[0]),
+                              'username': row[1], 'email': row[2]}
+                elif path == '/internal/tournament/creation-paid':
                     def one(key): return (q.get(key) or [''])[0]
                     shares=json.loads(one('prize_shares') or '{}')
                     result=tournament.create_tournament(
@@ -830,7 +898,7 @@ def health_response(connection, request):
                     terms = (q.get('terms_accepted') or [''])[0].lower() == 'true'
                     if not terms:
                         raise tournament.TournamentError('Ou dwe aksepte kondisyon tounwa a.')
-                    result = tournament.register_entry(tournament_id, player_id, online_checkout=True)
+                    result = tournament.register_entry(tournament_id, player_id, terms_accepted=True, online_checkout=True)
                     with tournament._db() as conn:
                         row = tournament._get_tournament(conn, tournament_id)
                     result.update({'amount': str(row['entry_fee']), 'currency': row['currency'],
