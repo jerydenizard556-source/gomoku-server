@@ -256,6 +256,56 @@ async def chat(ws,c,message):
     item={'sender':sender,'role':'spectator' if is_spec else 'player','text':msg,'time':int(time.time())}
     r.setdefault('chat',[]).append(item); r['chat']=r['chat'][-80:]
     await broadcast(r)
+
+async def camera_join(ws, c):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
+    if n is None and not is_spec: return
+    peers=[]
+    for player in r['players'].values():
+        other=player.get('socket')
+        if other is not None and other is not ws: peers.append({'peer_id':str(id(other))})
+    for other in list(r['spectators']):
+        if other is not ws: peers.append({'peer_id':str(id(other))})
+    await send(ws,{'type':'camera_peer_list','room':c,'peers':peers})
+    for player in r['players'].values():
+        other=player.get('socket')
+        if other is not None and other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws))})
+    for other in list(r['spectators']):
+        if other is not ws: await send(other,{'type':'camera_peer_join','room':c,'peer_id':str(id(ws))})
+
+async def camera_leave(ws, c):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
+    if n is None and not is_spec: return
+    peer_id=str(id(ws))
+    for player in r['players'].values():
+        other=player.get('socket')
+        if other is not None and other is not ws: await send(other,{'type':'camera_peer_leave','room':c,'peer_id':peer_id})
+    for other in list(r['spectators']):
+        if other is not ws: await send(other,{'type':'camera_peer_leave','room':c,'peer_id':peer_id})
+
+async def camera_signal(ws, c, to, signal_type, payload):
+    c=str(c or '').upper().strip()
+    if c not in rooms: return
+    r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
+    if n is None and not is_spec: return
+    if str(signal_type or '') not in ('description','ice'): return
+    try: target_id=int(to)
+    except (TypeError,ValueError): return
+    targets=[]
+    for player in r['players'].values():
+        other=player.get('socket')
+        if other is not None and other is not ws and id(other)==target_id: targets.append(other)
+    for other in list(r['spectators']):
+        if other is not ws and id(other)==target_id: targets.append(other)
+    if not targets: return
+    safe_payload=payload if isinstance(payload,dict) else {}
+    if len(json.dumps(safe_payload))>12000: return
+    await send(targets[0],{'type':'camera_signal','room':c,'from_id':str(id(ws)),'signal_type':signal_type,'payload':safe_payload})
+
 async def voice_join(ws, c):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -729,6 +779,9 @@ async def handler(ws):
                 elif t=='live_matches':await live(ws)
                 elif t=='rooms_list':await rooms_list(ws)
                 elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
+                elif t=='camera_join':await camera_join(ws,d.get('room'))
+                elif t=='camera_leave':await camera_leave(ws,d.get('room'))
+                elif t=='camera_signal':await camera_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
                 elif t=='voice_join':await voice_join(ws,d.get('room'))
                 elif t=='voice_leave':await voice_leave(ws,d.get('room'))
                 elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
