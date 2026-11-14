@@ -571,13 +571,17 @@ async def leave_match(ws, c):
     c=str(c or '').upper().strip()
     if c not in rooms: return await send(ws,{'type':'leave_match_result','success':True})
     r=rooms[c]; n=find(r,ws)
-    if n is None: return await send(ws,{'type':'leave_match_result','success':True})
-    if not r.get('game_over') and len(r.get('players',{}))==2:
+    if n is None: return await send(ws,{'type':'leave_match_result','success':True,'room':c})
+    if not r.get('game_over'):
         other=2 if n==1 else 1
-        r['game_over']=True; r['winner']=other; r['draw']=False; r['abandonment']=True
+        opponent=r.get('players',{}).get(other,{})
+        r['game_over']=True; r['draw']=False; r['abandonment']=True
+        r['winner']=other if opponent.get('connected') else 0
         r['winning_line']=None; r['rematch_request']=None; r['undo_request']=None
-        r['black_score']+=int(other==1); r['red_score']+=int(other==2)
-        await record_result(r)
+        if r['winner']:
+            r['black_score']+=int(other==1); r['red_score']+=int(other==2)
+            await record_result(r)
+            await sync_tournament_result(r)
         await broadcast(r)
     await send(ws,{'type':'leave_match_result','success':True,'room':c})
 
@@ -830,13 +834,18 @@ async def handler(ws):
                     await create(ws,requested_size,duration_seconds)
                 elif t=='join':await join(ws,d.get('room',d.get('room_code',d.get('code'))))
                 elif t in ('watch','spectate'):await watch(ws,d.get('room',d.get('room_code',d.get('code'))))
-                elif t in ('stop_watching','leave_spectator'):remove_spec(ws);await send(ws,{'type':'watch_stopped'})
+                elif t in ('stop_watching','leave_spectator'):
+                    watched_room=next((rc for rc,rr in rooms.items() if ws in rr['spectators']),None)
+                    remove_spec(ws)
+                    if watched_room in rooms: await broadcast(rooms[watched_room])
+                    await send(ws,{'type':'watch_stopped'})
                 elif t=='live_matches':await live(ws)
                 elif t=='rooms_list':await rooms_list(ws)
                 elif t=='chat':await chat(ws,d.get('room'),d.get('message',d.get('text')))
                 elif t=='camera_join':await camera_join(ws,d.get('room'))
                 elif t=='camera_leave':await camera_leave(ws,d.get('room'))
                 elif t=='camera_signal':await camera_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
+                elif t=='leave_match':await leave_match(ws,d.get('room'))
                 elif t=='voice_join':await voice_join(ws,d.get('room'))
                 elif t=='voice_leave':await voice_leave(ws,d.get('room'))
                 elif t=='voice_signal':await voice_signal(ws,d.get('room'),d.get('to'),d.get('signal_type'),d.get('payload'))
