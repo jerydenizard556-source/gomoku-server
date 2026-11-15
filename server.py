@@ -17,7 +17,7 @@ DATABASE_URL=os.environ.get('DATABASE_URL'); TOURNAMENT_PAYMENT_SECRET=os.enviro
 if DATABASE_URL:
     try:
         db=psycopg.connect(DATABASE_URL); db.autocommit=True
-        c=db.cursor(); c.execute('''CREATE TABLE IF NOT EXISTS players (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS points INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS wins INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS losses INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS draws INTEGER NOT NULL DEFAULT 0"); c.execute('''CREATE TABLE IF NOT EXISTS account_sessions (token_hash VARCHAR(64) PRIMARY KEY, player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.close(); print('PostgreSQL database connected.')
+        c=db.cursor(); c.execute('''CREATE TABLE IF NOT EXISTS players (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE NOT NULL, email VARCHAR(255) UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS points INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS wins INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS losses INTEGER NOT NULL DEFAULT 0"); c.execute("ALTER TABLE players ADD COLUMN IF NOT EXISTS draws INTEGER NOT NULL DEFAULT 0"); c.execute('''CREATE TABLE IF NOT EXISTS account_sessions (token_hash VARCHAR(64) PRIMARY KEY, player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''); c.execute('''CREATE TABLE IF NOT EXISTS player_match_results (match_key VARCHAR(100) NOT NULL, player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE, result VARCHAR(8) NOT NULL CHECK (result IN ('win','loss','draw')), points_earned INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(match_key,player_id))'''); c.execute('CREATE INDEX IF NOT EXISTS idx_player_match_results_created ON player_match_results(created_at)'); c.close(); print('PostgreSQL database connected.')
     except Exception as e: print('Database connection error:',repr(e)); db=None
 
 # Additive tournament schema; existing tables and game features are preserved.
@@ -154,20 +154,58 @@ def get_stats(pid):
 async def record_result(r):
     if r.get('stats_recorded') or not r.get('game_over'): return
     r['stats_recorded']=True
+    match_key=str(r.setdefault('result_id',secrets.token_urlsafe(24)))
     for n,p in r.get('players',{}).items():
         pid=p.get('player_id')
         if not pid or db is None: continue
         try:
             c=db.cursor()
             if r.get('draw'):
+                result='draw'; earned=1
                 c.execute('UPDATE players SET points=points+1, draws=draws+1 WHERE id=%s',(pid,))
             elif int(n)==int(r.get('winner',0)):
+                result='win'; earned=3
                 c.execute('UPDATE players SET points=points+3, wins=wins+1 WHERE id=%s',(pid,))
             else:
+                result='loss'; earned=0
                 c.execute('UPDATE players SET losses=losses+1 WHERE id=%s',(pid,))
+            c.execute('INSERT INTO player_match_results(match_key,player_id,result,points_earned) VALUES(%s,%s,%s,%s) ON CONFLICT(match_key,player_id) DO NOTHING',(match_key,pid,result,earned))
             c.close()
             stats_cache.pop(str(pid),None)
         except Exception as e: print('Stats update error:',repr(e))
+
+async def send_leaderboard(ws, period='all'):
+    database=ensure_db_connection()
+    if database is None:
+        return await send(ws,{'type':'leaderboard_result','success':False,'message':'Klasman an pa disponib kounye a.','players':[]})
+    period=str(period or 'all').lower()
+    if period not in ('all','week','month'): period='all'
+    try:
+        c=database.cursor()
+        if period=='all':
+            c.execute('''SELECT id,username,points,wins,losses,draws,(wins+losses+draws) AS matches_played
+                         FROM players ORDER BY points DESC,wins DESC,matches_played DESC,LOWER(username) ASC LIMIT 200''')
+        else:
+            interval='7 days' if period=='week' else '30 days'
+            c.execute('''SELECT p.id,p.username,COALESCE(SUM(h.points_earned),0) AS points,
+                                COUNT(*) FILTER (WHERE h.result='win') AS wins,
+                                COUNT(*) FILTER (WHERE h.result='loss') AS losses,
+                                COUNT(*) FILTER (WHERE h.result='draw') AS draws,
+                                COUNT(h.player_id) AS matches_played
+                         FROM players p JOIN player_match_results h ON h.player_id=p.id
+                         WHERE h.created_at >= CURRENT_TIMESTAMP - (%s)::interval
+                         GROUP BY p.id,p.username
+                         ORDER BY points DESC,wins DESC,matches_played DESC,LOWER(p.username) ASC LIMIT 200''',(interval,))
+        rows=c.fetchall(); c.close()
+        players=[]
+        for row in rows:
+            pid,name,points,wins,losses,draws,matches=row
+            matches=int(matches or 0); wins=int(wins or 0)
+            players.append({'player_id':pid,'username':name,'points':int(points or 0),'wins':wins,'losses':int(losses or 0),'draws':int(draws or 0),'matches_played':matches,'win_rate':round((wins/matches)*100,1) if matches else 0,'level':level_for_points(points or 0)})
+        await send(ws,{'type':'leaderboard_result','success':True,'period':period,'players':players,'generated_at':int(time.time())})
+    except Exception as ex:
+        print('Leaderboard error:',repr(ex))
+        await send(ws,{'type':'leaderboard_result','success':False,'period':period,'players':[],'message':'Pa kapab chaje klasman an kounye a.'})
 def winline(b,rr,cc,p):
     size=len(b)
     for dr,dc in ((0,1),(1,0),(1,1),(1,-1)):
@@ -874,6 +912,7 @@ async def handler(ws):
                 elif t=='undo_response':await undo_response(ws,d.get('room'),bool(d.get('accepted',False)))
                 elif t=='register':await register(ws,d.get('username'),d.get('email'),d.get('password'),d.get('password_confirmation'))
                 elif t=='login':await login(ws,d.get('login'),d.get('password'))
+                elif t=='leaderboard':await send_leaderboard(ws,d.get('period','all'))
                 elif t=='create':
                     try: duration_seconds=max(60,min(1800,int(d.get('duration_minutes',10) or 10)*60))
                     except (TypeError,ValueError): duration_seconds=START_TIME
