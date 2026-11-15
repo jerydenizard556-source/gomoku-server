@@ -162,14 +162,19 @@ async def record_result(r):
             c=db.cursor()
             if r.get('draw'):
                 result='draw'; earned=1
-                c.execute('UPDATE players SET points=points+1, draws=draws+1 WHERE id=%s',(pid,))
             elif int(n)==int(r.get('winner',0)):
                 result='win'; earned=3
-                c.execute('UPDATE players SET points=points+3, wins=wins+1 WHERE id=%s',(pid,))
             else:
                 result='loss'; earned=0
-                c.execute('UPDATE players SET losses=losses+1 WHERE id=%s',(pid,))
-            c.execute('INSERT INTO player_match_results(match_key,player_id,result,points_earned) VALUES(%s,%s,%s,%s) ON CONFLICT(match_key,player_id) DO NOTHING',(match_key,pid,result,earned))
+            c.execute('INSERT INTO player_match_results(match_key,player_id,result,points_earned) VALUES(%s,%s,%s,%s) ON CONFLICT(match_key,player_id) DO NOTHING RETURNING player_id',(match_key,pid,result,earned))
+            inserted=c.fetchone()
+            if inserted:
+                if result=='draw':
+                    c.execute('UPDATE players SET points=points+1, draws=draws+1 WHERE id=%s',(pid,))
+                elif result=='win':
+                    c.execute('UPDATE players SET points=points+3, wins=wins+1 WHERE id=%s',(pid,))
+                else:
+                    c.execute('UPDATE players SET losses=losses+1 WHERE id=%s',(pid,))
             c.close()
             stats_cache.pop(str(pid),None)
         except Exception as e: print('Stats update error:',repr(e))
