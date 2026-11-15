@@ -138,12 +138,18 @@ def active_room_for(ws):
 def remove_spec(ws):
     for r in rooms.values(): r['spectators'].discard(ws)
 def level_for_points(points): return 1 + max(0,int(points or 0)//30)
+stats_cache={}
 def get_stats(pid):
     if db is None or not pid: return {'points':0,'wins':0,'losses':0,'draws':0,'level':1}
+    cache_key=str(pid)
+    cached=stats_cache.get(cache_key)
+    if cached is not None: return cached.copy()
     try:
         c=db.cursor(); c.execute('SELECT points,wins,losses,draws FROM players WHERE id=%s',(pid,)); row=c.fetchone(); c.close()
         if not row: return {'points':0,'wins':0,'losses':0,'draws':0,'level':1}
-        return {'points':row[0] or 0,'wins':row[1] or 0,'losses':row[2] or 0,'draws':row[3] or 0,'level':level_for_points(row[0] or 0)}
+        result={'points':row[0] or 0,'wins':row[1] or 0,'losses':row[2] or 0,'draws':row[3] or 0,'level':level_for_points(row[0] or 0)}
+        stats_cache[cache_key]=result
+        return result.copy()
     except Exception as e: print('Stats read error:',repr(e)); return {'points':0,'wins':0,'losses':0,'draws':0,'level':1}
 async def record_result(r):
     if r.get('stats_recorded') or not r.get('game_over'): return
@@ -160,6 +166,7 @@ async def record_result(r):
             else:
                 c.execute('UPDATE players SET losses=losses+1 WHERE id=%s',(pid,))
             c.close()
+            stats_cache.pop(str(pid),None)
         except Exception as e: print('Stats update error:',repr(e))
 def winline(b,rr,cc,p):
     size=len(b)
@@ -185,6 +192,13 @@ async def broadcast(r):
     for p in r['players'].values():
         if p.get('socket'): await send(p['socket'],s)
     for ws in list(r['spectators']): await send(ws,s)
+
+async def broadcast_timer(r):
+    message={'type':'timer_update','black_time':r['black_time'],'red_time':r['red_time']}
+    targets=[p.get('socket') for p in r['players'].values() if p.get('socket') is not None]
+    targets.extend(list(r['spectators']))
+    for ws in targets: await send(ws,message)
+
 async def create(ws, size=BOARD_SIZE, duration=START_TIME):
     existing=active_room_for(ws)
     if existing: return await send(ws,{'type':'error','message':'Ou deja nan yon match. Kite oswa fini match sa anvan.'})
@@ -509,7 +523,10 @@ async def timer_loop():
             if r.get('game_over'):
                 await record_result(r)
                 await sync_tournament_result(r)
-            if b!=r['black_time'] or red!=r['red_time'] or r['game_over']:await broadcast(r)
+                await broadcast(r)
+            elif b!=r['black_time'] or red!=r['red_time']:
+                # Timer ticks need only send two numbers, not the full board/chat/stats payload.
+                await broadcast_timer(r)
 async def restore_session(ws, token):
     token=str(token or '')
     info=account_tokens.get(token)
