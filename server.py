@@ -338,7 +338,7 @@ async def rematch_resp(ws,c,accepted):
     if n is None or q is None or n==q:return
     if accepted:
         r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None
-    r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];r['reactions']=[];r['last_timer_update']=time.monotonic();await broadcast(r)
+    r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r.pop('result_id',None);r['chat']=[];r['reactions']=[];r['last_timer_update']=time.monotonic();await broadcast(r)
 async def room_reaction(ws,c,emoji):
     c=str(c or '').upper().strip()
     if c not in rooms: return
@@ -498,7 +498,7 @@ async def reset(ws,c):
     if c not in rooms:return
     r=rooms[c];n=find(r,ws)
     if n is None or not r['game_over']:return
-    r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None;r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r['chat']=[];r['reactions']=[];await broadcast(r)
+    r['starter']=2 if r['starter']==1 else 1;r['turn']=r['starter'];r['game_number']+=1;r['board']=[[0]*r.get('board_size',BOARD_SIZE) for _ in range(r.get('board_size',BOARD_SIZE))];r['black_time']=r.get('duration',START_TIME);r['red_time']=r.get('duration',START_TIME);r['move_history']=[];r['undo_request']=None;r['game_over']=False;r['winner']=0;r['draw']=False;r['abandonment']=False;r['last_move']=None;r['last_move_was_win']=False;r['winning_line']=None;r['rematch_request']=None;r['undo_request']=None;r['stats_recorded']=False;r.pop('result_id',None);r['chat']=[];r['reactions']=[];await broadcast(r)
 async def abandon_if_disconnected(room_code, player_number, marker):
     """Only forfeit after a reconnect grace period, not on a brief network drop."""
     await asyncio.sleep(RECONNECT_GRACE_SECONDS)
