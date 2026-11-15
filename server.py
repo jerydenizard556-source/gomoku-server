@@ -526,13 +526,17 @@ async def restore_session(ws, token):
     await send(ws,{'type':'restore_session_result','success':True,'player_id':info['player_id'],'username':info['username'],'email':info['email'],'account_token':token,**stats})
 
 async def logout_session(ws, token):
-    token=str(token or connected_accounts.get(ws,{}).get('account_token') or '')
-    if token:
-        account_tokens.pop(token,None)
-        if db is not None:
-            try:
-                c=db.cursor(); c.execute('DELETE FROM account_sessions WHERE token_hash=%s',(token_hash(token),)); c.close()
-            except Exception as ex: print('Session logout error:',repr(ex))
+    acct=connected_accounts.get(ws)
+    owned_token=str((acct or {}).get('account_token') or '')
+    requested_token=str(token or owned_token)
+    # A socket may revoke only the account session currently bound to that socket.
+    if not acct or not owned_token or not hmac.compare_digest(requested_token,owned_token):
+        return await send(ws,{'type':'logout_result','success':False,'message':'Sesyon sa a pa pou koneksyon sa a.'})
+    account_tokens.pop(owned_token,None)
+    if db is not None:
+        try:
+            c=db.cursor(); c.execute('DELETE FROM account_sessions WHERE token_hash=%s',(token_hash(owned_token),)); c.close()
+        except Exception as ex: print('Session logout error:',repr(ex))
     connected_accounts.pop(ws,None)
     await send(ws,{'type':'logout_result','success':True})
 
