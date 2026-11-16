@@ -56,7 +56,7 @@ MAX_FEE = Decimal(os.getenv("TOURNAMENT_MAX_ENTRY_FEE", "1000"))
 MIN_COMMISSION = Decimal("2")
 MAX_COMMISSION = Decimal("15")
 
-PAYMENT_METHODS = {"tranzak", "moncash", "natcash"}
+PAYMENT_METHODS = {"tranzak", "moncash", "natcash", "card"}
 BOARD_SIZES = {15, 19, 20}
 DURATIONS = {60, 120, 180, 300, 600, 900, 1200, 1800}
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{3,80}$")
@@ -929,7 +929,7 @@ def admin_review_entry(entry_id: str, decision: str, admin_secret: str) -> dict:
         ).fetchone()
         if not row: raise TournamentError("Entry not found.")
         if row["payment_status"]!="pending": raise TournamentError("Entry is not pending.")
-        if row["payment_method"]=="tranzak":
+        if row["payment_method"] in {"tranzak", "card"}:
             raise TournamentError("Tranzak must be confirmed by its signed Wallet webhook, not manual browser approval.")
         if decision=="rejected":
             conn.execute("UPDATE gomoku_tournament_entries SET payment_status='rejected' WHERE entry_id=%s",(entry_id,))
