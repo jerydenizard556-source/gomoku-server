@@ -460,6 +460,7 @@ async def voice_leave(ws, c):
     r=rooms[c]; n=find(r,ws); is_spec=ws in r['spectators']
     if n is None and not is_spec: return
     peer_id=str(id(ws))
+    r.setdefault('voice_muted',{}).pop(peer_id,None)
     for player in r['players'].values():
         other=player.get('socket')
         if other is not None and other is not ws:
@@ -540,6 +541,8 @@ async def disconnect(ws):
         # A replaced socket must not mark the newer connection as disconnected.
         if p.get('socket') is not ws:
             continue
+        # Notify other participants so they can discard stale voice peers after a socket drop.
+        await voice_leave(ws,room_code)
         p['connected']=False; p['socket']=None
         marker=secrets.token_urlsafe(12)
         p['disconnected_at']=time.monotonic(); p['disconnect_marker']=marker
