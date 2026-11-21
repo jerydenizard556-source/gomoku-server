@@ -475,7 +475,7 @@ async def voice_signal(ws, c, to, signal_type, payload):
     if n is None and not is_spec: return
 
     signal_type=str(signal_type or '')
-    if signal_type not in ('description','ice'): return
+    if signal_type not in ('description','ice','ready'): return
     try: target_id=int(to)
     except (TypeError,ValueError): return
     targets=[]
